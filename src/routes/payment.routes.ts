@@ -17,6 +17,7 @@ router.post(
   adminMiddleware,
   paymentController.resendWelcomeEmail,
 );
+router.post("/resend-welcome-public", paymentController.resendWelcomePublic);
 router.post("/cancel-pending", authMiddleware, paymentController.cancelPending);
 router.post("/cancel-subscription", authMiddleware, paymentController.cancelSubscription);
 

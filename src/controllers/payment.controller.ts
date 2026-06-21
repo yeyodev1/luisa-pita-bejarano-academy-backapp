@@ -107,6 +107,23 @@ export async function resendWelcomeEmail(
   }
 }
 
+export async function resendWelcomePublic(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { clientTransactionId } = req.body;
+    if (!clientTransactionId) {
+      throw new CustomError("clientTransactionId required", 400);
+    }
+    const result = await paymentService.resendWelcomeEmail(clientTransactionId);
+    successResponse(res, result, "Welcome email sent successfully");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function cancelPending(
   req: AuthRequest,
   res: Response,

@@ -240,27 +240,31 @@ export async function confirmPayment(id: string, clientTxId: string) {
       if (status === "approved") {
         const user = await User.findById(payment.user);
         if (user) {
-          // El acceso se calcula desde la fecha del pago, no se acumula con
-          // acceso futuro existente. Así un plan anual siempre da 12 meses.
           user.accessUntil = addMonths(new Date(), planMonths(payment.plan));
           user.subscriptionStatus = "active";
           await user.save();
+        }
 
+        let emailSent = false;
         if (payment.isNewUser && payment.plainPassword) {
           const loginUrl = `${process.env.FRONTEND_URL}/login`;
-          sendPaymentWelcomeEmail(
-            user.email,
-            user.name,
-            payment.plainPassword,
-            loginUrl,
-          ).catch((err) => {
+          try {
+            await sendPaymentWelcomeEmail(
+              user?.email || "",
+              user?.name || "",
+              payment.plainPassword,
+              loginUrl,
+            );
+            emailSent = true;
+          } catch (err) {
             console.error("Failed to send payment welcome email:", err);
-          });
+          }
         }
-      }
-    }
 
-    return { status, transactionId: data.transactionId, data };
+        return { status, transactionId: data.transactionId, data, isNewUser: payment.isNewUser, plainPassword: payment.isNewUser ? payment.plainPassword : undefined, emailSent, email: user?.email };
+      }
+
+      return { status, transactionId: data.transactionId, data, isNewUser: false, plainPassword: undefined, emailSent: false, email: undefined };
   } catch (error) {
     if (error instanceof CustomError) throw error;
     const axiosError = error as AxiosError<{ message?: string }>;
