@@ -4,15 +4,35 @@ import { Payment } from "../models/Payment";
 import { User } from "../models/User";
 import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
-import { sendPaymentWelcomeEmail } from "../helpers/email.helper";
+import {
+  sendPaymentAccessEmail,
+  sendPaymentWelcomeEmail,
+} from "../helpers/email.helper";
 import { sendPurchaseEvent } from "./metaPixel.service";
 
 const PAYPHONE_BASE_URL = "https://pay.payphonetodoesposible.com/api/button";
 const PAYPHONE_BOX_CONFIRM_URL = "https://paymentbox.payphonetodoesposible.com/api/confirm";
 
-function getAuthHeaders() {
+type PayphoneEnvironment = "test" | "prod";
+
+function payphoneEnvironment(origin?: string): PayphoneEnvironment {
+  if (origin?.includes("localhost") || origin?.includes("testing-storybrand")) return "test";
+  return "prod";
+}
+
+function getPayphoneCredentials(environment: PayphoneEnvironment) {
+  const testToken = process.env.PAYPHONE_TEST_TOKEN || process.env.PAYPHONE_TOKEN;
+  const testStoreId = process.env.PAYPHONE_TEST_STORE_ID || process.env.PAYPHONE_STORE_ID;
+  const token = environment === "test" ? testToken : process.env.PAYPHONE_TOKEN;
+  const storeId = environment === "test" ? testStoreId : process.env.PAYPHONE_STORE_ID;
+  if (!token || !storeId) throw new CustomError("Missing Payphone credentials", 500);
+  return { token, storeId };
+}
+
+function getAuthHeaders(environment: PayphoneEnvironment) {
+  const { token } = getPayphoneCredentials(environment);
   return {
-    Authorization: `Bearer ${process.env.PAYPHONE_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 }
@@ -63,6 +83,7 @@ async function preparePaymentRecord(
   plan: "monthly" | "annual",
   amountEnvVar: string | undefined,
   guestData: { email: string; name: string; lastName: string },
+  environment: PayphoneEnvironment,
 ) {
   const amount = Number(amountEnvVar);
   if (!Number.isFinite(amount)) {
@@ -73,7 +94,7 @@ async function preparePaymentRecord(
   const userId = user._id.toString();
 
   const amountCents = Math.round(amount * 100);
-  const clientTransactionId = `${userId}-${Date.now()}`;
+  const clientTransactionId = `${environment}-${userId}-${Date.now()}`;
 
   await Payment.create({
     user: userId,
@@ -99,8 +120,10 @@ async function preparePayment(
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
+  const environment = payphoneEnvironment(origin);
+  const credentials = getPayphoneCredentials(environment);
   const { amountCents, clientTransactionId, isNewUser, plainPassword, userId } =
-    await preparePaymentRecord(plan, amountEnvVar, guestData);
+    await preparePaymentRecord(plan, amountEnvVar, guestData, environment);
 
   try {
     const response = await axios.post(
@@ -110,12 +133,12 @@ async function preparePayment(
         amountWithoutTax: amountCents,
         currency: "USD",
         clientTransactionId,
-        storeId: process.env.PAYPHONE_STORE_ID,
+        storeId: credentials.storeId,
         reference,
         responseUrl: `${frontendUrl(origin)}/pay-response`,
         cancellationUrl: `${frontendUrl(origin)}/`,
       },
-      { headers: getAuthHeaders() },
+      { headers: getAuthHeaders(environment) },
     );
 
     const data = response.data as {
@@ -171,14 +194,17 @@ export async function prepareAnnualPaymentBox(
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
+  const environment = payphoneEnvironment(origin);
+  const credentials = getPayphoneCredentials(environment);
   const { amountCents, clientTransactionId } = await preparePaymentRecord(
     "annual",
     process.env.ANNUAL_PRICE,
     guestData,
+    environment,
   );
   return {
-    token: process.env.PAYPHONE_TOKEN,
-    storeId: process.env.PAYPHONE_STORE_ID,
+    token: credentials.token,
+    storeId: credentials.storeId,
     amount: amountCents,
     amountWithoutTax: amountCents,
     currency: "USD",
@@ -192,14 +218,17 @@ export async function prepareMonthlyPaymentBox(
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
+  const environment = payphoneEnvironment(origin);
+  const credentials = getPayphoneCredentials(environment);
   const { amountCents, clientTransactionId } = await preparePaymentRecord(
     "monthly",
     process.env.MONTHLY_PRICE,
     guestData,
+    environment,
   );
   return {
-    token: process.env.PAYPHONE_TOKEN,
-    storeId: process.env.PAYPHONE_STORE_ID,
+    token: credentials.token,
+    storeId: credentials.storeId,
     amount: amountCents,
     amountWithoutTax: amountCents,
     currency: "USD",
@@ -211,10 +240,11 @@ export async function prepareMonthlyPaymentBox(
 
 export async function confirmPayment(id: string, clientTxId: string) {
   try {
+    const environment: PayphoneEnvironment = clientTxId.startsWith("test-") ? "test" : "prod";
     const response = await axios.post(
       PAYPHONE_BOX_CONFIRM_URL,
       { id: Number(id), clientTxId },
-      { headers: getAuthHeaders() },
+      { headers: getAuthHeaders(environment) },
     );
 
     const data = response.data as {
@@ -241,13 +271,18 @@ export async function confirmPayment(id: string, clientTxId: string) {
       if (status === "approved") {
         const user = await User.findById(payment.user);
         if (user) {
+          if (!payment.plainPassword) {
+            payment.plainPassword = generatePassword();
+            user.password = await hashPassword(payment.plainPassword);
+            await payment.save();
+          }
           user.accessUntil = addMonths(new Date(), planMonths(payment.plan));
           user.subscriptionStatus = "active";
           await user.save();
         }
 
         let emailSent = false;
-        if (payment.isNewUser && payment.plainPassword) {
+        if (payment.plainPassword) {
           const loginUrl = `${process.env.FRONTEND_URL}/login`;
           try {
             await sendPaymentWelcomeEmail(
@@ -272,7 +307,7 @@ export async function confirmPayment(id: string, clientTxId: string) {
           }).catch((err) => console.error("[MetaPixel] Purchase event failed:", err));
         }
 
-        return { status, transactionId: data.transactionId, data, isNewUser: payment.isNewUser, plainPassword: payment.isNewUser ? payment.plainPassword : undefined, emailSent, email: user?.email };
+        return { status, transactionId: data.transactionId, data, isNewUser: payment.isNewUser, plainPassword: payment.plainPassword || undefined, emailSent, email: user?.email };
       }
 
       return { status, transactionId: data.transactionId, data, isNewUser: false, plainPassword: undefined, emailSent: false, email: undefined };
@@ -296,22 +331,22 @@ export async function resendWelcomeEmail(clientTransactionId: string) {
     throw new CustomError("Payment is not approved", 400);
   }
 
-  if (!payment.isNewUser || !payment.plainPassword) {
-    throw new CustomError("No credentials available for this transaction", 400);
-  }
-
   const user = await User.findById(payment.user);
   if (!user) {
     throw new CustomError("User not found", 404);
   }
 
   const loginUrl = `${process.env.FRONTEND_URL}/login`;
-  await sendPaymentWelcomeEmail(
-    user.email,
-    user.name,
-    payment.plainPassword,
-    loginUrl,
-  );
+  if (payment.plainPassword) {
+    await sendPaymentWelcomeEmail(
+      user.email,
+      user.name,
+      payment.plainPassword,
+      loginUrl,
+    );
+  } else {
+    await sendPaymentAccessEmail(user.email, user.name, loginUrl);
+  }
 
   return { email: user.email };
 }

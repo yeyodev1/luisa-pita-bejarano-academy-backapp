@@ -160,7 +160,34 @@ export async function sendPaymentWelcomeEmail(
         <a href="${loginUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Iniciar sesión</a>
         <p style="font-size: 14px; color: #666;">O copia y pega este enlace:</p>
         <p style="font-size: 14px; word-break: break-all;">${loginUrl}</p>
+        <p style="font-size: 14px; color: #666;">En breve podrás encontrar tus clases grabadas dentro de la comunidad.</p>
         <p style="font-size: 12px; color: #999; margin-top: 24px;">Te recomendamos cambiar tu contraseña después de iniciar sesión.</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendPaymentAccessEmail(
+  to: string,
+  name: string,
+  loginUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu acceso a Vital 360 está activo",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${name}</h2>
+        <p>Tu pago fue aprobado y tu acceso a <strong>Vital 360</strong> está activo.</p>
+        <p>Tu cuenta de ingreso es:</p>
+        <div style="margin: 16px 0; padding: 16px; background: #f0fff8; border: 1px solid #16c784; border-radius: 8px;">
+          <strong>Correo:</strong> ${to}
+        </div>
+        <p>Ingresa con tu contraseña habitual. Si no la recuerdas, utiliza la opción de recuperar contraseña en la pantalla de acceso.</p>
+        <a href="${loginUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #0d1117; color: #fff; text-decoration: none; border-radius: 6px;">Entrar a la comunidad</a>
+        <p style="font-size: 14px; color: #666;">En breve podrás encontrar tus clases grabadas dentro de la comunidad.</p>
+        <p style="font-size: 12px; color: #999; margin-top: 24px;">Si no reconoces este pago, contacta a soporte.</p>
       </div>
     `,
   });

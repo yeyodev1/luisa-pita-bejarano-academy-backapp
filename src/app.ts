@@ -12,6 +12,8 @@ const whitelist = [
   "http://localhost:8101",
   "https://testing-storybrand-frontend.bakano.ec",
   "https://luisapitabejarano.com",
+  "https://academia.luisapitabejarano.com",
+  "https://vital360.luisapitabejarano.com",
 ];
 
 const corsOptions: cors.CorsOptions = {

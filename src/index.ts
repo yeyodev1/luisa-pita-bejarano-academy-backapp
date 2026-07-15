@@ -1,7 +1,10 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { dbConnect } from "./config/mongo";
 import { createApp } from "./app";
 import { seedAdmin } from "./scripts/seed-admin";
+
+dotenv.config();
+dotenv.config({ path: ".env.local", override: true });
 
 const port = process.env.PORT || 8100;
 
