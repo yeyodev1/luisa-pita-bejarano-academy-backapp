@@ -4,6 +4,9 @@ import { ManualPayment } from "../models/ManualPayment";
 import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
 import { generateVerificationToken } from "../helpers/token.helper";
+import { LessonProgress } from "../models/LessonProgress";
+import { LessonComment } from "../models/LessonComment";
+import { UserAchievement } from "../models/UserAchievement";
 import {
   sendAdminInviteEmail,
   sendAccessExtendedEmail,
@@ -72,7 +75,7 @@ export async function createUser(
     isVerified: false,
     verificationToken,
     verificationTokenExpires,
-    subscriptionStatus: "none",
+    subscriptionStatus: accessUntil ? "active" : "none",
     accessUntil,
   });
 
@@ -145,7 +148,12 @@ export async function deleteUser(id: string) {
     throw new CustomError("User not found", 404);
   }
 
-  await ManualPayment.deleteMany({ user: id });
+  await Promise.all([
+    ManualPayment.deleteMany({ user: id }),
+    LessonProgress.deleteMany({ user: id }),
+    LessonComment.deleteMany({ user: id }),
+    UserAchievement.deleteMany({ user: id }),
+  ]);
   await User.findByIdAndDelete(id);
 
   return { deleted: true };
@@ -161,9 +169,10 @@ export async function extendAccess(id: string, months: number) {
     throw new CustomError("User not found", 404);
   }
 
-  const baseDate = user.accessUntil && user.accessUntil > new Date()
-    ? user.accessUntil
-    : new Date();
+  const baseDate =
+    user.accessUntil && user.accessUntil > new Date()
+      ? user.accessUntil
+      : new Date();
   const newAccessUntil = addMonths(baseDate, months);
 
   user.accessUntil = newAccessUntil;

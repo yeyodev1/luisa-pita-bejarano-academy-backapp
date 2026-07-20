@@ -1,4 +1,5 @@
 import { Request } from "express";
+import type { IUser } from "../models/User";
 
 export interface JwtPayload {
   userId: string;
@@ -8,5 +9,6 @@ export interface JwtPayload {
 
 export interface AuthRequest extends Request {
   user?: JwtPayload;
+  currentUser?: IUser;
   file?: Express.Multer.File;
 }
