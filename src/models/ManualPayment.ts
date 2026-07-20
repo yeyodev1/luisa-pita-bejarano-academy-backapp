@@ -1,8 +1,9 @@
 import { Schema, model, Document, Types } from "mongoose";
+import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 export interface IManualPayment extends Document {
   user: Types.ObjectId;
-  plan: "monthly" | "annual";
+  plan: PaymentPlan;
   amount: number;
   currency: "USD";
   status: "pending" | "approved";
@@ -17,7 +18,7 @@ export interface IManualPayment extends Document {
 const manualPaymentSchema = new Schema<IManualPayment>(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    plan: { type: String, enum: ["monthly", "annual"], required: true },
+    plan: { type: String, enum: Object.keys(PAYMENT_PLANS), required: true },
     amount: { type: Number, required: true },
     currency: { type: String, enum: ["USD"], default: "USD" },
     status: { type: String, enum: ["pending", "approved"], default: "pending" },

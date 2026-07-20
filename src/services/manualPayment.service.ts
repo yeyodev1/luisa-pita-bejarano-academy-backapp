@@ -3,6 +3,7 @@ import { ManualPayment } from "../models/ManualPayment";
 import { User } from "../models/User";
 import { CustomError } from "../errors/customError.error";
 import { sendManualPaymentReceiptEmail } from "../helpers/email.helper";
+import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 function addMonths(date: Date, months: number): Date {
   const result = new Date(date);
@@ -10,13 +11,9 @@ function addMonths(date: Date, months: number): Date {
   return result;
 }
 
-function planMonths(plan: "monthly" | "annual"): number {
-  return plan === "annual" ? 12 : 1;
-}
-
 export async function createManualPayment(
   userId: string,
-  plan: "monthly" | "annual",
+  plan: PaymentPlan,
   amount: number,
   notes: string,
   imageBuffer: Buffer,
@@ -52,7 +49,7 @@ export async function createManualPayment(
 
   // El acceso se calcula desde la fecha del pago registrado, no se acumula
   // con acceso futuro existente. Así un plan anual siempre da 12 meses.
-  const accessUntil = addMonths(new Date(), planMonths(plan));
+  const accessUntil = addMonths(new Date(), PAYMENT_PLANS[plan].months);
 
   user.subscriptionStatus = "active";
   user.accessUntil = accessUntil;

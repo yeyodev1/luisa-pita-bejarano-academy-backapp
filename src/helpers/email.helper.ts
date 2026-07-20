@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -196,12 +197,12 @@ export async function sendPaymentAccessEmail(
 export async function sendManualPaymentReceiptEmail(
   to: string,
   name: string,
-  plan: "monthly" | "annual",
+  plan: PaymentPlan,
   amount: number,
   accessUntil: Date,
   receiptUrl: string,
 ): Promise<void> {
-  const planLabel = plan === "annual" ? "anualidad" : "mensualidad";
+  const planLabel = PAYMENT_PLANS[plan].label.toLowerCase();
   const dateLabel = accessUntil.toLocaleDateString("es-EC", {
     day: "numeric",
     month: "long",

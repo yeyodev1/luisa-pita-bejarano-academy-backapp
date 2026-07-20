@@ -3,6 +3,7 @@ import { AuthRequest } from "../types/AuthRequest";
 import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as manualPaymentService from "../services/manualPayment.service";
+import { isPaymentPlan } from "../config/paymentPlans";
 
 export async function list(
   req: Request,
@@ -55,7 +56,7 @@ export async function create(
       throw new CustomError("Incomplete data", 400);
     }
 
-    if (plan !== "monthly" && plan !== "annual") {
+    if (!isPaymentPlan(plan)) {
       throw new CustomError("Invalid plan", 400);
     }
 

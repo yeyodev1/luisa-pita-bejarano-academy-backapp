@@ -9,6 +9,7 @@ import {
   sendPaymentWelcomeEmail,
 } from "../helpers/email.helper";
 import { sendPurchaseEvent } from "./metaPixel.service";
+import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 const PAYPHONE_BASE_URL = "https://pay.payphonetodoesposible.com/api/button";
 const PAYPHONE_BOX_CONFIRM_URL = "https://paymentbox.payphonetodoesposible.com/api/confirm";
@@ -41,10 +42,6 @@ function addMonths(date: Date, months: number): Date {
   const result = new Date(date);
   result.setMonth(result.getMonth() + months);
   return result;
-}
-
-function planMonths(plan: "monthly" | "annual"): number {
-  return plan === "annual" ? 12 : 1;
 }
 
 function generatePassword() {
@@ -80,15 +77,11 @@ async function findOrCreateGuestUser(input: {
 }
 
 async function preparePaymentRecord(
-  plan: "monthly" | "annual",
-  amountEnvVar: string | undefined,
+  plan: PaymentPlan,
   guestData: { email: string; name: string; lastName: string },
   environment: PayphoneEnvironment,
 ) {
-  const amount = Number(amountEnvVar);
-  if (!Number.isFinite(amount)) {
-    throw new CustomError("Invalid price configuration", 500);
-  }
+  const amount = PAYMENT_PLANS[plan].amount;
 
   const { user, isNew, plainPassword } = await findOrCreateGuestUser(guestData);
   const userId = user._id.toString();
@@ -114,16 +107,14 @@ function frontendUrl(origin?: string): string {
 }
 
 async function preparePayment(
-  plan: "monthly" | "annual",
-  amountEnvVar: string | undefined,
-  reference: string,
+  plan: PaymentPlan,
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
   const environment = payphoneEnvironment(origin);
   const credentials = getPayphoneCredentials(environment);
   const { amountCents, clientTransactionId, isNewUser, plainPassword, userId } =
-    await preparePaymentRecord(plan, amountEnvVar, guestData, environment);
+    await preparePaymentRecord(plan, guestData, environment);
 
   try {
     const response = await axios.post(
@@ -134,7 +125,7 @@ async function preparePayment(
         currency: "USD",
         clientTransactionId,
         storeId: credentials.storeId,
-        reference,
+        reference: PAYMENT_PLANS[plan].reference,
         responseUrl: `${frontendUrl(origin)}/pay-response`,
         cancellationUrl: `${frontendUrl(origin)}/`,
       },
@@ -170,8 +161,6 @@ export async function prepareAnnualPayment(
 ) {
   return preparePayment(
     "annual",
-    process.env.ANNUAL_PRICE,
-    "Comunidad anual cerrada - Luisa Pita Bejarano",
     guestData,
     origin,
   );
@@ -183,22 +172,28 @@ export async function prepareMonthlyPayment(
 ) {
   return preparePayment(
     "monthly",
-    process.env.MONTHLY_PRICE,
-    "Mensualidad - Luisa Pita Bejarano Academy",
     guestData,
     origin,
   );
 }
 
-export async function prepareAnnualPaymentBox(
+export async function preparePlanPayment(
+  plan: PaymentPlan,
+  guestData: { email: string; name: string; lastName: string },
+  origin?: string,
+) {
+  return preparePayment(plan, guestData, origin);
+}
+
+export async function preparePaymentBox(
+  plan: PaymentPlan,
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
   const environment = payphoneEnvironment(origin);
   const credentials = getPayphoneCredentials(environment);
   const { amountCents, clientTransactionId } = await preparePaymentRecord(
-    "annual",
-    process.env.ANNUAL_PRICE,
+    plan,
     guestData,
     environment,
   );
@@ -209,7 +204,7 @@ export async function prepareAnnualPaymentBox(
     amountWithoutTax: amountCents,
     currency: "USD",
     clientTransactionId,
-    reference: "Comunidad anual cerrada - Luisa Pita Bejarano",
+    reference: PAYMENT_PLANS[plan].reference,
     responseUrl: `${frontendUrl(origin)}/pay-response`,
   };
 }
@@ -218,28 +213,35 @@ export async function prepareMonthlyPaymentBox(
   guestData: { email: string; name: string; lastName: string },
   origin?: string,
 ) {
-  const environment = payphoneEnvironment(origin);
-  const credentials = getPayphoneCredentials(environment);
-  const { amountCents, clientTransactionId } = await preparePaymentRecord(
-    "monthly",
-    process.env.MONTHLY_PRICE,
-    guestData,
-    environment,
-  );
-  return {
-    token: credentials.token,
-    storeId: credentials.storeId,
-    amount: amountCents,
-    amountWithoutTax: amountCents,
-    currency: "USD",
-    clientTransactionId,
-    reference: "Mensualidad - Luisa Pita Bejarano Academy",
-    responseUrl: `${frontendUrl(origin)}/pay-response`,
-  };
+  return preparePaymentBox("monthly", guestData, origin);
+}
+
+export async function prepareAnnualPaymentBox(
+  guestData: { email: string; name: string; lastName: string },
+  origin?: string,
+) {
+  return preparePaymentBox("annual", guestData, origin);
 }
 
 export async function confirmPayment(id: string, clientTxId: string) {
   try {
+    const confirmedPayment = await Payment.findOne({
+      clientTransactionId: clientTxId,
+      status: "approved",
+    });
+    if (confirmedPayment) {
+      const user = await User.findById(confirmedPayment.user);
+      return {
+        status: "approved" as const,
+        transactionId: confirmedPayment.payphoneTransactionId ?? undefined,
+        data: confirmedPayment.payphoneResponse,
+        isNewUser: confirmedPayment.isNewUser,
+        plainPassword: confirmedPayment.plainPassword || undefined,
+        emailSent: false,
+        email: user?.email,
+      };
+    }
+
     const environment: PayphoneEnvironment = clientTxId.startsWith("test-") ? "test" : "prod";
     const response = await axios.post(
       PAYPHONE_BOX_CONFIRM_URL,
@@ -253,8 +255,7 @@ export async function confirmPayment(id: string, clientTxId: string) {
       message?: string;
     };
 
-    const payment = await Payment.findOne({ clientTransactionId: clientTxId });
-    if (!payment) {
+    if (!(await Payment.exists({ clientTransactionId: clientTxId }))) {
       throw new CustomError("Transaction not found", 404);
     }
 
@@ -263,54 +264,91 @@ export async function confirmPayment(id: string, clientTxId: string) {
     else if (data.statusCode === 2) status = "canceled";
     else status = "failed";
 
-    payment.status = status;
-    payment.payphoneTransactionId = data.transactionId ?? null;
-    payment.payphoneResponse = data;
-    await payment.save();
+    const session = await Payment.startSession();
+    let accessGranted = false;
+    try {
+      await session.withTransaction(async () => {
+        accessGranted = false;
+        const payment = await Payment.findOne({ clientTransactionId: clientTxId }).session(
+          session,
+        );
+        if (!payment) throw new CustomError("Transaction not found", 404);
 
-      if (status === "approved") {
-        const user = await User.findById(payment.user);
-        if (user) {
-          if (!payment.plainPassword) {
-            payment.plainPassword = generatePassword();
-            user.password = await hashPassword(payment.plainPassword);
-            await payment.save();
-          }
-          user.accessUntil = addMonths(new Date(), planMonths(payment.plan));
+        if (status === "approved" && payment.status === "approved") return;
+
+        payment.status = status;
+        payment.payphoneTransactionId = data.transactionId ?? null;
+        payment.payphoneResponse = data;
+
+        if (status === "approved") {
+          const user = await User.findById(payment.user).session(session);
+          if (!user) throw new CustomError("User not found", 404);
+
+          user.accessUntil = addMonths(new Date(), PAYMENT_PLANS[payment.plan].months);
           user.subscriptionStatus = "active";
-          await user.save();
+          await user.save({ session });
+          accessGranted = true;
         }
 
-        let emailSent = false;
-        if (payment.plainPassword) {
-          const loginUrl = `${process.env.FRONTEND_URL}/login`;
-          try {
+        await payment.save({ session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    const payment = await Payment.findOne({ clientTransactionId: clientTxId });
+    if (!payment) throw new CustomError("Transaction not found", 404);
+
+    if (status === "approved") {
+      const user = await User.findById(payment.user);
+      let emailSent = false;
+
+      if (accessGranted && user) {
+        const loginUrl = `${process.env.FRONTEND_URL}/login`;
+        try {
+          if (payment.plainPassword) {
             await sendPaymentWelcomeEmail(
-              user?.email || "",
-              user?.name || "",
+              user.email,
+              user.name,
               payment.plainPassword,
               loginUrl,
             );
-            emailSent = true;
-          } catch (err) {
-            console.error("Failed to send payment welcome email:", err);
+          } else {
+            await sendPaymentAccessEmail(user.email, user.name, loginUrl);
           }
+          emailSent = true;
+        } catch (err) {
+          console.error("Failed to send payment access email:", err);
         }
 
-        // Enviar evento Purchase al Pixel de Meta (Conversions API)
-        if (user?.email) {
-          sendPurchaseEvent({
-            email: user.email,
-            value: payment.amount,
-            currency: payment.currency || "USD",
-            eventSourceUrl: process.env.FRONTEND_URL,
-          }).catch((err) => console.error("[MetaPixel] Purchase event failed:", err));
-        }
-
-        return { status, transactionId: data.transactionId, data, isNewUser: payment.isNewUser, plainPassword: payment.plainPassword || undefined, emailSent, email: user?.email };
+        sendPurchaseEvent({
+          email: user.email,
+          value: payment.amount,
+          currency: payment.currency || "USD",
+          eventSourceUrl: process.env.FRONTEND_URL,
+        }).catch((err) => console.error("[MetaPixel] Purchase event failed:", err));
       }
 
-      return { status, transactionId: data.transactionId, data, isNewUser: false, plainPassword: undefined, emailSent: false, email: undefined };
+      return {
+        status,
+        transactionId: data.transactionId,
+        data,
+        isNewUser: payment.isNewUser,
+        plainPassword: payment.plainPassword || undefined,
+        emailSent,
+        email: user?.email,
+      };
+    }
+
+    return {
+      status,
+      transactionId: data.transactionId,
+      data,
+      isNewUser: false,
+      plainPassword: undefined,
+      emailSent: false,
+      email: undefined,
+    };
   } catch (error) {
     if (error instanceof CustomError) throw error;
     const axiosError = error as AxiosError<{ message?: string }>;

@@ -8,6 +8,7 @@ const router = Router();
 
 router.post("/prepare", paymentController.prepare);
 router.post("/prepare-monthly", paymentController.prepareMonthly);
+router.post("/prepare-plan", paymentController.preparePlan);
 router.post("/prepare-box", paymentController.prepareBox);
 router.get("/history", authMiddleware, manualPaymentController.history);
 router.get("/confirm", paymentController.confirm);

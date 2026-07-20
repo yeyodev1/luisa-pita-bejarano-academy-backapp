@@ -3,15 +3,12 @@ import { dbConnect } from "../config/mongo";
 import { Payment } from "../models/Payment";
 import { ManualPayment } from "../models/ManualPayment";
 import { User } from "../models/User";
+import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 function addMonths(date: Date, months: number): Date {
   const result = new Date(date);
   result.setMonth(result.getMonth() + months);
   return result;
-}
-
-function planMonths(plan: "monthly" | "annual"): number {
-  return plan === "annual" ? 12 : 1;
 }
 
 async function main() {
@@ -38,7 +35,7 @@ async function main() {
       .lean(),
   ]);
 
-  type PaymentLike = { plan: "monthly" | "annual"; date: Date };
+  type PaymentLike = { plan: PaymentPlan; date: Date };
 
   const candidates: PaymentLike[] = [];
   if (latestPayphone) {
@@ -62,7 +59,7 @@ async function main() {
   candidates.sort((a, b) => b.date.getTime() - a.date.getTime());
   const latest = candidates[0];
 
-  const newAccessUntil = addMonths(latest.date, planMonths(latest.plan));
+  const newAccessUntil = addMonths(latest.date, PAYMENT_PLANS[latest.plan].months);
 
   console.log("Usuario:", user.email);
   console.log("Plan usado:", latest.plan);

@@ -3,6 +3,7 @@ import { AuthRequest } from "../types/AuthRequest";
 import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as paymentService from "../services/payment.service";
+import { isPaymentPlan } from "../config/paymentPlans";
 
 export async function prepare(
   req: Request,
@@ -46,6 +47,28 @@ export async function prepareMonthly(
   }
 }
 
+export async function preparePlan(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const { email, name, lastName, plan, origin } = req.body;
+    if (!email || !name || !lastName || !isPaymentPlan(plan)) {
+      throw new CustomError("Incomplete or invalid data", 400);
+    }
+
+    const result = await paymentService.preparePlanPayment(
+      plan,
+      { email, name, lastName },
+      origin,
+    );
+    successResponse(res, result, "Payment prepared successfully");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function prepareBox(
   req: Request,
   res: Response,
@@ -56,14 +79,15 @@ export async function prepareBox(
     if (!email || !name || !lastName || !plan) {
       throw new CustomError("Incomplete data", 400);
     }
-    if (plan !== "annual" && plan !== "monthly") {
+    if (!isPaymentPlan(plan)) {
       throw new CustomError("Invalid plan", 400);
     }
 
-    const result =
-      plan === "annual"
-        ? await paymentService.prepareAnnualPaymentBox({ email, name, lastName }, origin)
-        : await paymentService.prepareMonthlyPaymentBox({ email, name, lastName }, origin);
+    const result = await paymentService.preparePaymentBox(
+      plan,
+      { email, name, lastName },
+      origin,
+    );
     successResponse(res, result, "Payment box prepared successfully");
   } catch (error) {
     next(error);
