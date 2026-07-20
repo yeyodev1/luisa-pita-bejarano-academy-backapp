@@ -11,5 +11,39 @@
       "src": "/(.*)",
       "dest": "api/index.ts"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/event-reminders/morning-60",
+      "schedule": "0 10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/event-reminders/morning-30",
+      "schedule": "30 10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/event-reminders/morning-10",
+      "schedule": "50 10 * * 1-5"
+    },
+    {
+      "path": "/api/cron/event-reminders/morning-now",
+      "schedule": "0 11 * * 1-5"
+    },
+    {
+      "path": "/api/cron/event-reminders/cafecito-60",
+      "schedule": "0 20 * * 1"
+    },
+    {
+      "path": "/api/cron/event-reminders/cafecito-30",
+      "schedule": "30 20 * * 1"
+    },
+    {
+      "path": "/api/cron/event-reminders/cafecito-10",
+      "schedule": "50 20 * * 1"
+    },
+    {
+      "path": "/api/cron/event-reminders/cafecito-now",
+      "schedule": "0 21 * * 1"
+    }
   ]
 }

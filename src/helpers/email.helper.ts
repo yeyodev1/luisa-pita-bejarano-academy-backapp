@@ -3,6 +3,64 @@ import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+export interface EventReminderEmailInput {
+  to: string;
+  name: string;
+  eventTitle: string;
+  eventTime: string;
+  reminderText: string;
+  canJoin: boolean;
+  actionUrl: string;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>'"]/g,
+    (character) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[
+        character
+      ] || character,
+  );
+}
+
+export async function sendEventReminderEmailBatch(
+  recipients: EventReminderEmailInput[],
+): Promise<void> {
+  if (!recipients.length) return;
+
+  const { error } = await resend.batch.send(
+    recipients.map((recipient) => {
+      const title = escapeHtml(recipient.eventTitle);
+      const name = escapeHtml(recipient.name);
+      const actionLabel = recipient.canJoin
+        ? "Entrar a Google Meet"
+        : "Elegir mi plan";
+      const accessCopy = recipient.canJoin
+        ? "Tu acceso está activo. Usa el botón para entrar a la videollamada."
+        : "Aún no tienes acceso activo. Elige un plan para participar en las sesiones y acceder a la academia.";
+
+      return {
+        from: process.env.RESEND_FROM_EMAIL as string,
+        to: recipient.to,
+        subject: `${recipient.reminderText}: ${recipient.eventTitle}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #20231f; background: #fffdf7;">
+            <p style="margin: 0 0 8px; color: #536d59; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">${escapeHtml(recipient.reminderText)}</p>
+            <h1 style="margin: 0 0 16px; color: #20231f; font-size: 28px; line-height: 1.2;">${title}</h1>
+            <p>Hola, ${name}.</p>
+            <p><strong>Horario:</strong> ${escapeHtml(recipient.eventTime)} (hora Ecuador).</p>
+            <p>${accessCopy}</p>
+            <a href="${escapeHtml(recipient.actionUrl)}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; color: #ffffff; background: #536d59; border-radius: 999px; font-weight: 700; text-decoration: none;">${actionLabel}</a>
+            <p style="margin-top: 24px; color: #536d59; font-size: 13px;">Luisa Pita Bejarano Academy · Todos los horarios corresponden a Ecuador (UTC-5).</p>
+          </div>
+        `,
+      };
+    }),
+  );
+
+  if (error) throw new Error(`Resend batch error: ${error.message}`);
+}
+
 export async function sendVerificationEmail(
   to: string,
   token: string,
