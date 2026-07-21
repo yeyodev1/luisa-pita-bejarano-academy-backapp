@@ -81,3 +81,13 @@ export const deleteComment = run(
   "Comment deleted successfully",
   (req, userId) => service.deleteComment(String(req.params.id), userId),
 );
+
+// ── Recorded Classes ──────────────────────────────────────────────────────────
+export const listRecordedClasses = run(
+  "Recorded classes retrieved successfully",
+  (req) => service.listRecordedClasses(req.query),
+);
+export const getRecordedClass = run(
+  "Recorded class retrieved successfully",
+  (req) => service.getRecordedClass(String(req.params.id)),
+);

@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { dbConnect } from "./config/mongo";
 import { createApp } from "./app";
 import { seedAdmin } from "./scripts/seed-admin";
+import { seedRecordedClasses } from "./scripts/seed-recorded-classes";
 
 dotenv.config();
 dotenv.config({ path: ".env.local", override: true });
@@ -11,6 +12,7 @@ const port = process.env.PORT || 8100;
 async function main() {
   await dbConnect();
   await seedAdmin();
+  await seedRecordedClasses();
 
   const { app, server } = createApp();
 

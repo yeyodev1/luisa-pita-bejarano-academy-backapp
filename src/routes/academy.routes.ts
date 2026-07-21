@@ -29,4 +29,7 @@ router.delete("/comments/:id", controller.deleteComment);
 
 router.post("/assets/delivery-url", assetController.deliveryUrl);
 
+router.get("/recorded-classes", controller.listRecordedClasses);
+router.get("/recorded-classes/:id", controller.getRecordedClass);
+
 export default router;

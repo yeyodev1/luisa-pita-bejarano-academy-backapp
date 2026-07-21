@@ -70,6 +70,12 @@ router.get("/comments", academyController.listComments);
 router.put("/comments/:id/moderate", academyController.moderateComment);
 router.delete("/comments/:id", academyController.deleteComment);
 
+router.get("/recorded-classes", academyController.listRecordedClasses);
+router.post("/recorded-classes", academyController.createRecordedClass);
+router.get("/recorded-classes/:id", academyController.getRecordedClass);
+router.put("/recorded-classes/:id", academyController.updateRecordedClass);
+router.delete("/recorded-classes/:id", academyController.deleteRecordedClass);
+
 router.post("/assets/signature", assetController.signature);
 router.post("/assets/confirm", assetController.confirm);
 router.delete("/assets", assetController.remove);

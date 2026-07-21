@@ -7,6 +7,7 @@ import { Achievement } from "../models/Achievement";
 import { UserAchievement } from "../models/UserAchievement";
 import { LessonComment } from "../models/LessonComment";
 import { User } from "../models/User";
+import { RecordedClass } from "../models/RecordedClass";
 import { CustomError } from "../errors/customError.error";
 import {
   asDate,
@@ -20,6 +21,7 @@ import { deleteAsset } from "./cloudinaryAsset.service";
 import { deleteVideo } from "./bunnyStream.service";
 
 type Body = Record<string, unknown>;
+type Query = Record<string, unknown>;
 type AssetRef = {
   publicId: string;
   resourceType: "image" | "video" | "raw";
@@ -604,5 +606,86 @@ export async function deleteComment(id: string) {
   requireObjectId(id);
   if (!(await LessonComment.findByIdAndDelete(id)))
     throw new CustomError("Comment not found", 404);
+  return { deleted: true };
+}
+
+// ── Recorded Classes ──────────────────────────────────────────────────────────
+
+export async function listRecordedClasses(query: Query) {
+  const { page, limit, skip } = pagination(query);
+  const filter: Record<string, unknown> = {};
+  if (query.status) filter.status = query.status;
+  const [classes, total] = await Promise.all([
+    RecordedClass.find(filter).sort({ classDate: -1 }).skip(skip).limit(limit),
+    RecordedClass.countDocuments(filter),
+  ]);
+  return {
+    classes,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+export async function getRecordedClass(id: string) {
+  requireObjectId(id);
+  const cls = await RecordedClass.findById(id);
+  if (!cls) throw new CustomError("Recorded class not found", 404);
+  return cls;
+}
+
+export async function createRecordedClass(body: Body) {
+  const title = requireString(body.title, "title");
+  const recordingUrl = requireString(body.recordingUrl, "recordingUrl");
+  const classDate = asDate(body.classDate, "classDate");
+  const startsAt = requireString(body.startsAt ?? "06:00", "startsAt");
+  const endsAt = requireString(body.endsAt ?? "07:00", "endsAt");
+  const notesUrl =
+    body.notesUrl !== undefined ? String(body.notesUrl).trim() : "";
+  const status = (
+    body.status &&
+    (contentStatuses as readonly unknown[]).includes(body.status)
+      ? body.status
+      : "published"
+  ) as "published" | "draft" | "archived";
+  return RecordedClass.create({
+    title,
+    classDate,
+    startsAt,
+    endsAt,
+    recordingUrl,
+    notesUrl,
+    status,
+  });
+}
+
+export async function updateRecordedClass(id: string, body: Body) {
+  requireObjectId(id);
+  const allowed = [
+    "title",
+    "classDate",
+    "startsAt",
+    "endsAt",
+    "recordingUrl",
+    "notesUrl",
+    "status",
+  ];
+  const update = pick(body, allowed);
+  if (update.title !== undefined) update.title = requireString(update.title, "title");
+  if (update.recordingUrl !== undefined) update.recordingUrl = requireString(update.recordingUrl, "recordingUrl");
+  if (update.classDate !== undefined) update.classDate = asDate(update.classDate, "classDate");
+  if (
+    update.status !== undefined &&
+    !(contentStatuses as readonly unknown[]).includes(update.status)
+  ) throw new CustomError("Invalid status", 400);
+  if (update.status !== undefined)
+    update.status = update.status as "published" | "draft" | "archived";
+  const cls = await RecordedClass.findByIdAndUpdate(id, update, { new: true, runValidators: true });
+  if (!cls) throw new CustomError("Recorded class not found", 404);
+  return cls;
+}
+
+export async function deleteRecordedClass(id: string) {
+  requireObjectId(id);
+  if (!(await RecordedClass.findByIdAndDelete(id)))
+    throw new CustomError("Recorded class not found", 404);
   return { deleted: true };
 }

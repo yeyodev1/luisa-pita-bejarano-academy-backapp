@@ -134,3 +134,26 @@ export const moderateComment = run("Comment moderated successfully", (req) => {
 export const deleteComment = run("Comment deleted successfully", (req) =>
   service.deleteComment(id(req)),
 );
+
+// ── Recorded Classes ──────────────────────────────────────────────────────────
+export const listRecordedClasses = run(
+  "Recorded classes retrieved successfully",
+  (req) => service.listRecordedClasses(req.query),
+);
+export const getRecordedClass = run(
+  "Recorded class retrieved successfully",
+  (req) => service.getRecordedClass(id(req)),
+);
+export const createRecordedClass = run(
+  "Recorded class created successfully",
+  (req) => service.createRecordedClass(req.body),
+  201,
+);
+export const updateRecordedClass = run(
+  "Recorded class updated successfully",
+  (req) => service.updateRecordedClass(id(req), req.body),
+);
+export const deleteRecordedClass = run(
+  "Recorded class deleted successfully",
+  (req) => service.deleteRecordedClass(id(req)),
+);

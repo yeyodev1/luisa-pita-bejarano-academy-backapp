@@ -6,6 +6,7 @@ import { Recipe } from "../models/Recipe";
 import { Achievement } from "../models/Achievement";
 import { UserAchievement } from "../models/UserAchievement";
 import { LessonComment } from "../models/LessonComment";
+import { RecordedClass } from "../models/RecordedClass";
 import { CustomError } from "../errors/customError.error";
 import {
   pagination,
@@ -397,4 +398,28 @@ export async function deleteComment(id: string, userId: string) {
   if (!(await LessonComment.findOneAndDelete({ _id: id, user: userId })))
     throw new CustomError("Comment not found", 404);
   return { deleted: true };
+}
+
+// ── Recorded Classes ──────────────────────────────────────────────────────────
+
+export async function listRecordedClasses(query: Query) {
+  const { page, limit, skip } = pagination(query);
+  const [classes, total] = await Promise.all([
+    RecordedClass.find({ status: "published" })
+      .sort({ classDate: -1 })
+      .skip(skip)
+      .limit(limit),
+    RecordedClass.countDocuments({ status: "published" }),
+  ]);
+  return {
+    classes,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+export async function getRecordedClass(id: string) {
+  requireObjectId(id);
+  const cls = await RecordedClass.findOne({ _id: id, status: "published" });
+  if (!cls) throw new CustomError("Recorded class not found", 404);
+  return cls;
 }
