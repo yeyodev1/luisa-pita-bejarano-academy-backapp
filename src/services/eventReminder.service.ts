@@ -8,7 +8,10 @@ import {
 import { CustomError } from "../errors/customError.error";
 
 const ECUADOR_TIMEZONE = "America/Guayaquil";
-const MEETING_URL = "https://meet.google.com/tik-vsks-pbc";
+const MEETING_URLS: Record<string, string> = {
+  "weekday-class": "https://meet.google.com/tik-vsks-pbc",
+  "monday-cafecito": "https://meet.google.com/evz-dpuc-nho",
+};
 const BATCH_SIZE = 100;
 
 const REMINDER_SLOTS = {
@@ -136,7 +139,9 @@ export async function sendEventReminders(
         eventTime: schedule.eventTime,
         reminderText: schedule.reminderText,
         canJoin,
-        actionUrl: canJoin ? MEETING_URL : `${frontendUrl}/app/pagos`,
+        actionUrl: canJoin
+          ? MEETING_URLS[schedule.eventKey]
+          : `${frontendUrl}/app/pagos`,
       } satisfies EventReminderEmailInput,
     };
   });
