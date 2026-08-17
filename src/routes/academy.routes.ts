@@ -32,4 +32,12 @@ router.post("/assets/delivery-url", assetController.deliveryUrl);
 router.get("/recorded-classes", controller.listRecordedClasses);
 router.get("/recorded-classes/:id", controller.getRecordedClass);
 
+router.get("/my-assessment", controller.getMyAssessment);
+router.put("/my-assessment/profile", controller.upsertMyAssessmentProfile);
+router.post("/my-assessment/checkpoints", controller.addMyAssessmentCheckpoint);
+router.put(
+  "/my-assessment/checkpoints/:checkpointId",
+  controller.updateMyAssessmentCheckpoint,
+);
+
 export default router;

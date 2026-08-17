@@ -76,6 +76,25 @@ router.get("/recorded-classes/:id", academyController.getRecordedClass);
 router.put("/recorded-classes/:id", academyController.updateRecordedClass);
 router.delete("/recorded-classes/:id", academyController.deleteRecordedClass);
 
+router.get("/assessments", academyController.listAssessments);
+router.get("/assessments/:userId", academyController.getAssessment);
+router.put(
+  "/assessments/:userId/profile",
+  academyController.upsertAssessmentProfile,
+);
+router.post(
+  "/assessments/:userId/checkpoints",
+  academyController.addAssessmentCheckpoint,
+);
+router.put(
+  "/assessments/:userId/checkpoints/:checkpointId",
+  academyController.updateAssessmentCheckpoint,
+);
+router.delete(
+  "/assessments/:userId/checkpoints/:checkpointId",
+  academyController.deleteAssessmentCheckpoint,
+);
+
 router.post("/assets/signature", assetController.signature);
 router.post("/assets/confirm", assetController.confirm);
 router.delete("/assets", assetController.remove);

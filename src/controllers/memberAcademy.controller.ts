@@ -3,6 +3,7 @@ import { AuthRequest } from "../types/AuthRequest";
 import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as service from "../services/memberAcademy.service";
+import * as assessmentService from "../services/assessment.service";
 
 type Handler = (req: AuthRequest, userId: string) => Promise<unknown>;
 const run =
@@ -90,4 +91,28 @@ export const listRecordedClasses = run(
 export const getRecordedClass = run(
   "Recorded class retrieved successfully",
   (req) => service.getRecordedClass(String(req.params.id)),
+);
+
+// ── Physical Assessment (self) ────────────────────────────────────────────────
+export const getMyAssessment = run(
+  "Assessment retrieved successfully",
+  (_req, userId) => assessmentService.getAssessmentByUser(userId),
+);
+export const upsertMyAssessmentProfile = run(
+  "Assessment profile saved successfully",
+  (req, userId) => assessmentService.upsertProfile(userId, req.body),
+);
+export const addMyAssessmentCheckpoint = run(
+  "Checkpoint created successfully",
+  (req, userId) => assessmentService.addCheckpoint(userId, req.body),
+  201,
+);
+export const updateMyAssessmentCheckpoint = run(
+  "Checkpoint updated successfully",
+  (req, userId) =>
+    assessmentService.updateCheckpoint(
+      userId,
+      String(req.params.checkpointId),
+      req.body,
+    ),
 );

@@ -3,6 +3,7 @@ import { AuthRequest } from "../types/AuthRequest";
 import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as service from "../services/adminAcademy.service";
+import * as assessmentService from "../services/assessment.service";
 
 type Handler = (req: AuthRequest) => Promise<unknown> | unknown;
 const run =
@@ -156,4 +157,40 @@ export const updateRecordedClass = run(
 export const deleteRecordedClass = run(
   "Recorded class deleted successfully",
   (req) => service.deleteRecordedClass(id(req)),
+);
+
+// ── Physical Assessments ──────────────────────────────────────────────────────
+const userId = (req: AuthRequest) => String(req.params.userId);
+export const listAssessments = run(
+  "Assessments retrieved successfully",
+  (req) => assessmentService.listAssessments(req.query),
+);
+export const getAssessment = run("Assessment retrieved successfully", (req) =>
+  assessmentService.getAssessmentByUser(userId(req)),
+);
+export const upsertAssessmentProfile = run(
+  "Assessment profile saved successfully",
+  (req) => assessmentService.upsertProfile(userId(req), req.body),
+);
+export const addAssessmentCheckpoint = run(
+  "Checkpoint created successfully",
+  (req) => assessmentService.addCheckpoint(userId(req), req.body),
+  201,
+);
+export const updateAssessmentCheckpoint = run(
+  "Checkpoint updated successfully",
+  (req) =>
+    assessmentService.updateCheckpoint(
+      userId(req),
+      String(req.params.checkpointId),
+      req.body,
+    ),
+);
+export const deleteAssessmentCheckpoint = run(
+  "Checkpoint deleted successfully",
+  (req) =>
+    assessmentService.deleteCheckpoint(
+      userId(req),
+      String(req.params.checkpointId),
+    ),
 );
