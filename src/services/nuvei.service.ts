@@ -243,7 +243,7 @@ export async function handleWebhook(body: NuveiWebhookBody) {
       if (status === "approved") {
         const user = await User.findById(payment.user).session(session);
         if (!user) throw new CustomError("Usuario no encontrado", 404);
-        await grantPlanAccess(user, payment.plan, { session, extend: true });
+        await grantPlanAccess(user, payment.plan, { session });
         accessGranted = true;
       }
 

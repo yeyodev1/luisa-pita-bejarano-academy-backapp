@@ -77,5 +77,11 @@ Para volver atrás basta `NUVEI_ENABLED=false` — vuelve a PayPhone sin despleg
 - Registrar la URL del webhook en el dashboard.
 - Confirmar con Nuvei el valor exacto de `installments_type` para "diferido con
   intereses 3 meses"; hoy queda configurable y por defecto en 0.
-- Migrar PayPhone y los pagos manuales a `grantPlanAccess()`
-  (`src/helpers/access.helper.ts`), que ya centraliza el otorgamiento de acceso.
+
+## Regla de acceso
+
+Todas las pasarelas otorgan acceso por `src/helpers/access.helper.ts`. Una
+**compra siempre reinicia** desde la fecha del pago — un plan anual da 12 meses
+exactos, no se acumula con acceso vigente (regla documentada en
+`createManualPayment`). La única excepción es la **extensión manual del admin**,
+que sí acumula: ahí el admin regala meses en vez de vender un plan.

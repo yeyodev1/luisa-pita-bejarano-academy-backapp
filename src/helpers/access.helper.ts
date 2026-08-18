@@ -8,16 +8,21 @@ export function addMonths(date: Date, months: number): Date {
   return result;
 }
 
-/**
- * Otorga acceso por la duración del plan. `extend` continúa desde el
- * accessUntil vigente en lugar de reiniciar desde hoy (renovación anticipada).
- */
-export async function grantPlanAccess(
+type GrantOptions = {
+  session?: ClientSession;
+  /**
+   * Suma sobre el acceso vigente en vez de reiniciar desde hoy. Solo lo usa la
+   * extensión manual del admin: una compra siempre reinicia, para que un plan
+   * anual dé exactamente 12 meses (ver createManualPayment).
+   */
+  extend?: boolean;
+};
+
+export async function grantAccessMonths(
   user: IUser,
-  plan: PaymentPlan,
-  options: { session?: ClientSession; extend?: boolean } = {},
+  months: number,
+  options: GrantOptions = {},
 ) {
-  const { months } = PAYMENT_PLANS[plan];
   const now = new Date();
   const base =
     options.extend && user.accessUntil && user.accessUntil > now
@@ -27,5 +32,14 @@ export async function grantPlanAccess(
   user.accessUntil = addMonths(base, months);
   user.subscriptionStatus = "active";
   await user.save(options.session ? { session: options.session } : undefined);
-  return user;
+  return user.accessUntil;
+}
+
+/** Otorga el acceso que corresponde a un plan comprado. */
+export function grantPlanAccess(
+  user: IUser,
+  plan: PaymentPlan,
+  options: GrantOptions = {},
+) {
+  return grantAccessMonths(user, PAYMENT_PLANS[plan].months, options);
 }

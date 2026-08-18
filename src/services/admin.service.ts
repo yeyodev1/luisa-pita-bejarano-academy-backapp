@@ -7,6 +7,7 @@ import { generateVerificationToken } from "../helpers/token.helper";
 import { LessonProgress } from "../models/LessonProgress";
 import { LessonComment } from "../models/LessonComment";
 import { UserAchievement } from "../models/UserAchievement";
+import { addMonths, grantAccessMonths } from "../helpers/access.helper";
 import {
   sendAdminInviteEmail,
   sendAccessExtendedEmail,
@@ -33,12 +34,6 @@ function generateRandomPassword(length = 12): string {
   return Array.from(crypto.randomBytes(length))
     .map((byte) => chars[byte % chars.length])
     .join("");
-}
-
-function addMonths(date: Date, months: number): Date {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + months);
-  return result;
 }
 
 export async function createUser(
@@ -169,15 +164,9 @@ export async function extendAccess(id: string, months: number) {
     throw new CustomError("User not found", 404);
   }
 
-  const baseDate =
-    user.accessUntil && user.accessUntil > new Date()
-      ? user.accessUntil
-      : new Date();
-  const newAccessUntil = addMonths(baseDate, months);
-
-  user.accessUntil = newAccessUntil;
-  user.subscriptionStatus = "active";
-  await user.save();
+  // A diferencia de una compra, la extensión manual sí se acumula sobre el
+  // acceso vigente: el admin está regalando meses, no vendiendo un plan.
+  const newAccessUntil = await grantAccessMonths(user, months, { extend: true });
 
   await sendAccessExtendedEmail(user.email, user.name, newAccessUntil);
 
