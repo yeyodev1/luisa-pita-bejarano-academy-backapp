@@ -10,6 +10,7 @@ import {
 } from "../helpers/email.helper";
 import { sendPurchaseEvent } from "./metaPixel.service";
 import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
+import { addMonths, grantPlanAccess } from "../helpers/access.helper";
 
 const PAYPHONE_BASE_URL = "https://pay.payphonetodoesposible.com/api/button";
 const PAYPHONE_BOX_CONFIRM_URL = "https://paymentbox.payphonetodoesposible.com/api/confirm";
@@ -36,12 +37,6 @@ function getAuthHeaders(environment: PayphoneEnvironment) {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-}
-
-function addMonths(date: Date, months: number): Date {
-  const result = new Date(date);
-  result.setMonth(result.getMonth() + months);
-  return result;
 }
 
 function generatePassword() {
@@ -284,9 +279,7 @@ export async function confirmPayment(id: string, clientTxId: string) {
           const user = await User.findById(payment.user).session(session);
           if (!user) throw new CustomError("User not found", 404);
 
-          user.accessUntil = addMonths(new Date(), PAYMENT_PLANS[payment.plan].months);
-          user.subscriptionStatus = "active";
-          await user.save({ session });
+          await grantPlanAccess(user, payment.plan, { session });
           accessGranted = true;
         }
 
