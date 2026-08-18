@@ -200,6 +200,13 @@ function mapStatus(status?: string): "pending" | "approved" | "canceled" | "fail
  * navegador solo consulta el estado ya persistido aquí.
  */
 export async function handleWebhook(body: NuveiWebhookBody) {
+  // Sin credenciales no se puede validar la firma. Se corta acá para no
+  // reventar en un 500 que además dispara la alerta de Slack: este endpoint es
+  // público y recibe sondeos.
+  if (!isNuveiEnabled() || !process.env.NUVEI_APP_KEY) {
+    throw new CustomError("Nuvei no está habilitado", 401);
+  }
+
   const transaction = body.transaction;
   const devReference = transaction?.dev_reference;
   const transactionId = transaction?.id;
