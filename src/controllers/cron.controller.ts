@@ -6,7 +6,10 @@ import {
   isEventReminderSlot,
   sendEventReminders,
 } from "../services/eventReminder.service";
-import { sendMissedClassEmail } from "../services/missedClassEmail.service";
+import {
+  sendMissedClassEmail,
+  missedClassEmailStatus as getMissedClassEmailStatus,
+} from "../services/missedClassEmail.service";
 
 export async function eventReminders(
   req: Request,
@@ -59,6 +62,21 @@ export async function missedClassEmail(
       extra: q.extra !== undefined ? q.extra.split(",") : undefined,
     });
     successResponse(res, result, "Missed class email processed");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function missedClassEmailStatus(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    assertCronAuthorization(req.header("authorization"));
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const result = await getMissedClassEmailStatus(limit);
+    successResponse(res, result, "Missed class email status");
   } catch (error) {
     next(error);
   }

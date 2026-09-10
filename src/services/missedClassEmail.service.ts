@@ -225,3 +225,31 @@ export async function sendMissedClassEmail(options: MissedClassEmailOptions) {
 
   return { ...summary, dryRun: false, sent, failed, errors };
 }
+
+/** Estado de entrega en Resend de los últimos correos con el asunto del aviso. */
+export async function missedClassEmailStatus(limit = 50) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const { data, error } = await resend.emails.list({ limit });
+  if (error) throw new CustomError(`Resend list error: ${error.message}`, 502);
+
+  const subject = buildMissedClassEmail({
+    name: "x",
+    missedDateLabel: "x",
+    cls: { title: "x", classDate: new Date(), startsAt: "", endsAt: "", recordingUrl: "x" } as IRecordedClass,
+    libraryUrl: "x",
+  }).subject;
+
+  const items = (data?.data ?? [])
+    .filter((e) => e.subject === subject)
+    .map((e) => ({
+      to: e.to,
+      lastEvent: e.last_event,
+      createdAt: e.created_at,
+      id: e.id,
+    }));
+
+  const byEvent: Record<string, number> = {};
+  for (const item of items) byEvent[item.lastEvent] = (byEvent[item.lastEvent] || 0) + 1;
+
+  return { subject, total: items.length, byEvent, items };
+}
