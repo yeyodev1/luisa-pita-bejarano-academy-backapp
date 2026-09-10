@@ -64,13 +64,12 @@ export function buildMissedClassEmail(input: {
 }) {
   const name = escapeHtml(input.name);
   const title = escapeHtml(input.cls.title);
-  const classDateLabel = escapeHtml(ecuadorLongDate(input.cls.classDate));
   const recordingUrl = escapeHtml(input.cls.recordingUrl);
   const notesUrl = input.cls.notesUrl ? escapeHtml(input.cls.notesUrl) : "";
   const libraryUrl = escapeHtml(input.libraryUrl);
 
   const subject =
-    "Hoy no tuvimos clase — te dejamos la grabación del primer jueves";
+    "Hoy no tuvimos clase — te dejamos una clase exclusiva grabada en vivo";
 
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #20231f; background: #fffdf7;">
@@ -78,10 +77,10 @@ export function buildMissedClassEmail(input: {
       <h1 style="margin: 0 0 16px; color: #20231f; font-size: 26px; line-height: 1.2;">Hoy no tuvimos clase en vivo</h1>
       <p>Hola, ${name}.</p>
       <p>Hoy, <strong>${escapeHtml(input.missedDateLabel)}</strong>, no se realizó la clase en vivo de las 6:00 a. m. Te pedimos disculpas por el inconveniente.</p>
-      <p>Para que no pierdas el ritmo, te dejamos la grabación de la clase del <strong>primer jueves</strong>:</p>
+      <p>Para que no pierdas el ritmo, te dejamos una <strong>clase exclusiva grabada en vivo</strong> para que la veas cuando quieras:</p>
       <div style="margin: 16px 0; padding: 16px 18px; background: #ffffff; border: 1px solid #e3e0d3; border-radius: 12px;">
         <p style="margin: 0 0 4px; font-weight: 700; font-size: 16px;">${title}</p>
-        <p style="margin: 0; color: #536d59; font-size: 14px;">${classDateLabel} · ${escapeHtml(input.cls.startsAt)} - ${escapeHtml(input.cls.endsAt)} (hora Ecuador)</p>
+        <p style="margin: 0; color: #536d59; font-size: 14px;">Duración aproximada: 1 hora</p>
       </div>
       <a href="${recordingUrl}" style="display: inline-block; margin: 8px 8px 8px 0; padding: 14px 24px; color: #ffffff; background: #536d59; border-radius: 999px; font-weight: 700; text-decoration: none;">Ver la grabación</a>
       ${
