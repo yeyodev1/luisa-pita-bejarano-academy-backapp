@@ -34,7 +34,8 @@ export async function eventReminders(
 
 /**
  * Correo puntual: aviso de clase faltante + grabación del primer jueves.
- * Query: dryRun=1 | test=<email> | confirm=1 (envío real), classId, missed, extra (csv).
+ * Query: dryRun=1 | test=<email> | confirm=1 (envío real), classId, missed, extra (csv),
+ * variant=exclusive (la clase de hoy es una exclusiva), publishAsToday=1 (la sube a la biblioteca con fecha de hoy).
  */
 export async function missedClassEmail(
   req: Request,
@@ -60,6 +61,8 @@ export async function missedClassEmail(
       classId: q.classId?.trim() || undefined,
       missed: q.missed?.trim() || undefined,
       extra: q.extra !== undefined ? q.extra.split(",") : undefined,
+      variant: q.variant === "exclusive" ? "exclusive" : "missed",
+      publishAsToday: q.publishAsToday === "1",
     });
     successResponse(res, result, "Missed class email processed");
   } catch (error) {
