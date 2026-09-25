@@ -144,7 +144,7 @@ function buildExclusiveClassEmail(input: {
   return { subject, html };
 }
 
-function todayClassTitle(date: string) {
+export function todayClassTitle(date: string) {
   const d = new Date(`${date}T12:00:00-05:00`);
   const weekday = new Intl.DateTimeFormat("es-EC", { timeZone: TZ, weekday: "long" }).format(d);
   const rest = new Intl.DateTimeFormat("es-EC", { timeZone: TZ, day: "numeric", month: "long" }).format(d);

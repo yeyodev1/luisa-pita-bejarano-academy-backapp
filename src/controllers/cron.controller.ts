@@ -10,6 +10,7 @@ import {
   sendMissedClassEmail,
   missedClassEmailStatus as getMissedClassEmailStatus,
 } from "../services/missedClassEmail.service";
+import { fillRecordedClassGaps } from "../services/recordedClassGaps.service";
 
 export async function eventReminders(
   req: Request,
@@ -80,6 +81,29 @@ export async function missedClassEmailStatus(
     const limit = Math.min(Number(req.query.limit) || 50, 100);
     const result = await getMissedClassEmailStatus(limit);
     successResponse(res, result, "Missed class email status");
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Rellena los días de lunes a viernes sin clase grabada con una grabación del mismo día de la semana.
+ * Query: dryRun=1 | confirm=1 (escritura real), to=YYYY-MM-DD (por defecto hoy).
+ */
+export async function recordedClassGaps(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    assertCronAuthorization(req.header("authorization"));
+    const q = req.query as Record<string, string | undefined>;
+    const dryRun = q.dryRun === "1";
+    if (!dryRun && q.confirm !== "1") {
+      throw new CustomError("Para escribir agrega confirm=1 (o usa dryRun=1)", 400);
+    }
+    const result = await fillRecordedClassGaps({ dryRun, to: q.to?.trim() || undefined });
+    successResponse(res, result, "Recorded class gaps processed");
   } catch (error) {
     next(error);
   }
