@@ -132,10 +132,16 @@ async function sendAccessEmail(user: IUser) {
 }
 
 /** Paso 2: guarda la tarjeta tokenizada como principal y activa la suscripción. */
-export async function completeCheckout(checkoutToken: string, cardToken: string, ip?: string) {
+export async function completeCheckout(
+  checkoutToken: string,
+  cardToken: string,
+  termsVersion: string | undefined,
+  ip?: string,
+) {
   const { userId } = readCheckoutToken(checkoutToken);
+  if (!termsVersion) throw new CustomError("Debes aceptar los Términos y condiciones para suscribirte.", 400);
   await saveCard(userId, cardToken, true, ip);
-  const result = await subscribe(userId, cardToken, ip, { accessEmail: false });
+  const result = await subscribe(userId, cardToken, ip, { accessEmail: false, termsVersion });
 
   if (result.charge?.status === "otp_required") {
     // El acceso se envía recién cuando el banco confirme con el código.

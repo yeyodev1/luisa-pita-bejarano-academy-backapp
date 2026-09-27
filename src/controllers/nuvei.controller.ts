@@ -15,6 +15,13 @@ function clientIp(req: Request): string | undefined {
   return ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? ip : undefined;
 }
 
+/** Versión de los Términos aceptada; undefined si no marcó la casilla. */
+function acceptedTermsVersion(body: unknown): string | undefined {
+  const { acceptTerms, termsVersion } = (body ?? {}) as { acceptTerms?: unknown; termsVersion?: unknown };
+  if (acceptTerms !== true || typeof termsVersion !== "string" || !termsVersion.trim()) return undefined;
+  return termsVersion.trim().slice(0, 40);
+}
+
 function userIdOf(req: AuthRequest): string {
   if (!req.user) throw new CustomError("Unauthorized", 401);
   return req.user.userId;
@@ -83,6 +90,7 @@ export async function subscribe(req: AuthRequest, res: Response, next: NextFunct
       userIdOf(req),
       typeof cardToken === "string" && cardToken.trim() ? cardToken.trim() : undefined,
       clientIp(req),
+      { termsVersion: acceptedTermsVersion(req.body) },
     );
     successResponse(res, result, "Suscripción procesada", 201);
   } catch (error) {
@@ -179,6 +187,7 @@ export async function checkoutComplete(req: Request, res: Response, next: NextFu
     const result = await checkoutService.completeCheckout(
       requireString(checkoutToken, "checkoutToken"),
       requireString(cardToken, "cardToken"),
+      acceptedTermsVersion(req.body),
       clientIp(req),
     );
     successResponse(res, result, "Suscripción procesada", 201);

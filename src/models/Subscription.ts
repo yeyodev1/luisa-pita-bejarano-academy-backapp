@@ -28,6 +28,10 @@ export interface ISubscription extends Document {
   chargingAt: Date | null;
   canceledAt: Date | null;
   cancelReason: string | null;
+  /** Evidencia de aceptación de los Términos (incluye la política de reembolso). */
+  termsVersion: string | null;
+  termsAcceptedAt: Date | null;
+  termsAcceptedIp: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -54,6 +58,10 @@ const subscriptionSchema = new Schema<ISubscription>(
     chargingAt: { type: Date, default: null },
     canceledAt: { type: Date, default: null },
     cancelReason: { type: String, default: null },
+    // Obligatorios al crear (lo valida subscribe); opcionales para registros previos.
+    termsVersion: { type: String, default: null },
+    termsAcceptedAt: { type: Date, default: null },
+    termsAcceptedIp: { type: String, default: null },
   },
   { timestamps: true },
 );

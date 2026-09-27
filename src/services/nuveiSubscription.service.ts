@@ -453,9 +453,12 @@ export async function subscribe(
   userId: string,
   requestedToken: string | undefined,
   ip?: string,
-  options: { accessEmail?: boolean } = {},
+  options: { accessEmail?: boolean; termsVersion?: string } = {},
 ) {
   assertSubscriptionsEnabled();
+  if (!options.termsVersion) {
+    throw new CustomError("Debes aceptar los Términos y condiciones para suscribirte.", 400);
+  }
   const plan = SUBSCRIPTION_PLAN;
   const { amount } = PAYMENT_PLANS[plan];
   if (amount > NUVEI_MAX_AMOUNT) {
@@ -476,11 +479,16 @@ export async function subscribe(
   if (!cardToken) throw new CustomError("Agrega una tarjeta para suscribirte.", 400);
 
   const card = await resolveCard(userId, cardToken);
-  if (!user.nuveiDefaultCardToken || requestedToken) {
-    user.nuveiDefaultCardToken = cardToken;
-    await user.save();
-  }
+  const termsAcceptedAt = new Date();
+  if (!user.nuveiDefaultCardToken || requestedToken) user.nuveiDefaultCardToken = cardToken;
+  user.termsVersion = options.termsVersion;
+  user.termsAcceptedAt = termsAcceptedAt;
+  await user.save();
+
   const sub = await Subscription.create({
+    termsVersion: options.termsVersion,
+    termsAcceptedAt,
+    termsAcceptedIp: ip ?? null,
     user: userId,
     plan,
     amount,

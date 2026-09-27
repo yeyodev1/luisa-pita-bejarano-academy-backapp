@@ -375,6 +375,7 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
             ? `<p>Tu suscripción se renovará automáticamente el <strong>${formatEmailDate(input.nextChargeAt)}</strong>. Puedes cancelarla cuando quieras desde la sección Pagos de tu cuenta.</p>`
             : ""
         }
+        <p style="font-size: 13px; color: #666;"><strong>Política de reembolso:</strong> solo puedes pedir un reembolso dentro de los 2 primeros días desde que adquiriste tu suscripción, por hasta el 30% del monto pagado. Después no hay reembolsos. <a href="${process.env.FRONTEND_URL}/terminos-y-condiciones#reembolsos">Ver términos y condiciones</a>.</p>
         <p style="font-size: 12px; color: #999; margin-top: 24px;">Guarda este correo como comprobante. Si no reconoces este cargo, responde a este correo o contacta a soporte.</p>
       </div>
     `,
