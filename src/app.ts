@@ -17,6 +17,7 @@ const whitelist = [
   "https://vital360.luisapitabejarano.com",
   "https://luisa-pita-bejarano-academy-frontapp.vercel.app",
   "https://luisa-pita-bejarano-academy-frontapp-proyectos-de-diego.vercel.app",
+  "https://luisa-pita-bejarano-dev.vercel.app",
 ];
 
 const corsOptions: cors.CorsOptions = {
