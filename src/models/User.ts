@@ -17,6 +17,10 @@ export interface IUser extends Document {
   foundingMember: boolean;
   /** Token de Nuvei de la tarjeta principal: la que se usa para los cobros. */
   nuveiDefaultCardToken: string | null;
+  /** Cuenta creada en el checkout sin contraseña propia: debe crearla por correo. */
+  passwordPending: boolean;
+  /** Último correo de acceso enviado (para limitar los reenvíos). */
+  lastAccessEmailAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,6 +52,8 @@ const userSchema = new Schema<IUser>(
     accessUntil: { type: Date, default: null },
     foundingMember: { type: Boolean, default: false },
     nuveiDefaultCardToken: { type: String, default: null },
+    passwordPending: { type: Boolean, default: false },
+    lastAccessEmailAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

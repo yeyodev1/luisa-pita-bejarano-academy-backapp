@@ -171,19 +171,24 @@ export async function sendReceiptOnce(paymentId: Types.ObjectId | string) {
   }
 }
 
-/** Correo de acceso (o bienvenida con contraseña) + evento de compra de Meta. */
-export async function notifyAccessGranted(payment: IPayment) {
+/**
+ * Correo de acceso (o bienvenida con contraseña) + evento de compra de Meta.
+ * El checkout sin login manda su propio correo de acceso (email: false).
+ */
+export async function notifyAccessGranted(payment: IPayment, options: { email?: boolean } = {}) {
   const user = await User.findById(payment.user);
   if (!user) return;
   const loginUrl = `${process.env.FRONTEND_URL}/login`;
-  try {
-    if (payment.plainPassword) {
-      await sendPaymentWelcomeEmail(user.email, user.name, payment.plainPassword, loginUrl);
-    } else {
-      await sendPaymentAccessEmail(user.email, user.name, loginUrl);
+  if (options.email !== false) {
+    try {
+      if (payment.plainPassword) {
+        await sendPaymentWelcomeEmail(user.email, user.name, payment.plainPassword, loginUrl);
+      } else {
+        await sendPaymentAccessEmail(user.email, user.name, loginUrl);
+      }
+    } catch (err) {
+      console.error("[Nuvei] Failed to send access email:", err);
     }
-  } catch (err) {
-    console.error("[Nuvei] Failed to send access email:", err);
   }
 
   sendPurchaseEvent({

@@ -6,6 +6,7 @@ import { requireString } from "../helpers/validation.helper";
 import { areSubscriptionsEnabled, isNuveiEnabled } from "../config/nuvei";
 import * as service from "../services/nuvei.service";
 import * as subscriptionService from "../services/nuveiSubscription.service";
+import * as checkoutService from "../services/nuveiCheckout.service";
 
 function clientIp(req: Request): string | undefined {
   const forwarded = req.header("x-forwarded-for")?.split(",")[0]?.trim();
@@ -137,6 +138,59 @@ export async function removeCard(req: AuthRequest, res: Response, next: NextFunc
 export async function mySubscription(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     successResponse(res, { subscription: await subscriptionService.getMySubscription(userIdOf(req)) }, "Suscripción obtenida");
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ── Checkout sin iniciar sesión ───────────────────────────────────────────────
+
+export async function checkoutStart(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { name, lastName, email } = req.body ?? {};
+    const result = await checkoutService.startCheckout({
+      name: requireString(name, "name"),
+      lastName: typeof lastName === "string" ? lastName : "",
+      email: requireString(email, "email"),
+    });
+    successResponse(res, result, "Checkout iniciado", 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function checkoutVerifyCard(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { checkoutToken, transactionId, otp } = req.body ?? {};
+    const result = await checkoutService.verifyCheckoutCard(
+      requireString(checkoutToken, "checkoutToken"),
+      requireString(transactionId, "transactionId"),
+      requireString(otp, "otp"),
+    );
+    successResponse(res, result, "Tarjeta verificada");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function checkoutComplete(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { checkoutToken, cardToken } = req.body ?? {};
+    const result = await checkoutService.completeCheckout(
+      requireString(checkoutToken, "checkoutToken"),
+      requireString(cardToken, "cardToken"),
+      clientIp(req),
+    );
+    successResponse(res, result, "Suscripción procesada", 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function checkoutResendAccess(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await checkoutService.resendAccessEmail(requireString(req.body?.email, "email"));
+    successResponse(res, result, "Si el correo tiene una suscripción activa, te reenviamos el acceso");
   } catch (error) {
     next(error);
   }

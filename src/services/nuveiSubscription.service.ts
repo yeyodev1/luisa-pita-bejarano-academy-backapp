@@ -236,7 +236,7 @@ function chargeReference(sub: ISubscription) {
  */
 export async function chargeSubscription(
   subscriptionId: string,
-  options: { initial?: boolean; ip?: string } = {},
+  options: { initial?: boolean; ip?: string; accessEmail?: boolean } = {},
 ): Promise<ChargeResult> {
   const now = new Date();
   const sub = await Subscription.findOneAndUpdate(
@@ -293,7 +293,7 @@ export async function chargeSubscription(
       const approved = await Payment.findById(payment._id);
       if (granted && approved) {
         await onSubscriptionPaymentApproved(approved);
-        if (options.initial) await notifyAccessGranted(approved);
+        if (options.initial) await notifyAccessGranted(approved, { email: options.accessEmail });
         await sendReceiptOnce(approved._id);
       }
       return { status: "approved", paymentId: payment._id.toString(), transactionId: transaction.id };
@@ -394,7 +394,12 @@ export async function onSubscriptionPaymentApproved(payment: IPayment) {
  * transferencia), NO se cobra hoy; el primer cobro es el día en que vence ese
  * acceso. Si no tiene acceso vigente, se cobra de inmediato.
  */
-export async function subscribe(userId: string, requestedToken: string | undefined, ip?: string) {
+export async function subscribe(
+  userId: string,
+  requestedToken: string | undefined,
+  ip?: string,
+  options: { accessEmail?: boolean } = {},
+) {
   assertSubscriptionsEnabled();
   const plan = SUBSCRIPTION_PLAN;
   const { amount } = PAYMENT_PLANS[plan];
@@ -445,7 +450,7 @@ export async function subscribe(userId: string, requestedToken: string | undefin
     return { charge: null, firstChargeAt: paidUntil, subscription: serialize(sub) };
   }
 
-  const charge = await chargeSubscription(sub._id.toString(), { initial: true, ip });
+  const charge = await chargeSubscription(sub._id.toString(), { initial: true, ip, accessEmail: options.accessEmail });
   const fresh = await Subscription.findById(sub._id);
   return { charge, firstChargeAt: null, subscription: serialize(fresh) };
 }

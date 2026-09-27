@@ -39,4 +39,10 @@ router.post("/nuvei/cards", authMiddleware, nuveiController.saveCard);
 router.post("/nuvei/cards/:token/default", authMiddleware, nuveiController.setDefaultCard);
 router.delete("/nuvei/cards/:token", authMiddleware, nuveiController.removeCard);
 
+// Checkout sin iniciar sesión: el token de checkout reemplaza a la sesión.
+router.post("/nuvei/checkout/start", nuveiController.checkoutStart);
+router.post("/nuvei/checkout/card/verify", nuveiController.checkoutVerifyCard);
+router.post("/nuvei/checkout/complete", nuveiController.checkoutComplete);
+router.post("/nuvei/checkout/resend-access", nuveiController.checkoutResendAccess);
+
 export default router;

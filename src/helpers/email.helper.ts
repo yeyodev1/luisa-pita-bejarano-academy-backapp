@@ -442,3 +442,52 @@ export async function sendSubscriptionScheduledEmail(
     `,
   });
 }
+
+/**
+ * Acceso tras suscribirse sin cuenta: la alumna nueva crea su contraseña con
+ * un enlace (no se envían contraseñas por correo).
+ */
+export async function sendCheckoutWelcomeEmail(
+  to: string,
+  name: string,
+  setPasswordUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu acceso a Luisa Pita Bejarano Academy — crea tu contraseña",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">¡Bienvenida, ${escapeHtml(name)}!</h2>
+        <p>Tu suscripción a <strong>Luisa Pita Bejarano Academy</strong> está activa.</p>
+        <p>Para entrar, crea tu contraseña con este botón:</p>
+        <a href="${setPasswordUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Crear mi contraseña</a>
+        <p style="font-size: 14px; color: #666;">O copia y pega este enlace:</p>
+        <p style="font-size: 14px; word-break: break-all;">${setPasswordUrl}</p>
+        <p style="font-size: 14px; color: #666;">Tu usuario es <strong>${escapeHtml(to)}</strong>. El enlace es válido por 7 días; si vence, usa "¿Olvidaste tu contraseña?" en la pantalla de ingreso.</p>
+      </div>
+    `,
+  });
+}
+
+/** Acceso tras suscribirse sin iniciar sesión, para quien ya tenía cuenta. */
+export async function sendCheckoutAccessEmail(
+  to: string,
+  name: string,
+  loginUrl: string,
+  forgotUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu suscripción a Luisa Pita Bejarano Academy está activa",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Tu suscripción mensual está activa. Entra con tu correo <strong>${escapeHtml(to)}</strong> y tu contraseña de siempre.</p>
+        <a href="${loginUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Entrar a la academia</a>
+        <p style="font-size: 14px; color: #666;">¿No recuerdas tu contraseña? <a href="${forgotUrl}">Créala de nuevo aquí</a>.</p>
+      </div>
+    `,
+  });
+}
