@@ -305,6 +305,21 @@ function formatEmailDateTime(date: Date) {
   });
 }
 
+/** Nuvei devuelve la marca abreviada (vi, mc, ax, di…). */
+const CARD_BRANDS: Record<string, string> = {
+  vi: "Visa",
+  mc: "Mastercard",
+  ax: "American Express",
+  di: "Diners",
+  dc: "Diners",
+  dn: "Discover",
+};
+
+export function cardBrandLabel(brand: string | null | undefined) {
+  if (!brand) return "Tarjeta";
+  return CARD_BRANDS[brand.toLowerCase()] ?? brand.toUpperCase();
+}
+
 export interface NuveiReceiptEmailInput {
   to: string;
   name: string;
@@ -329,7 +344,7 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
   const plan = PAYMENT_PLANS[input.plan];
   const name = escapeHtml(input.name);
   const card =
-    input.cardLast4 ? `${escapeHtml((input.cardBrand || "Tarjeta").toUpperCase())} •••• ${escapeHtml(input.cardLast4)}` : null;
+    input.cardLast4 ? `${escapeHtml(cardBrandLabel(input.cardBrand))} •••• ${escapeHtml(input.cardLast4)}` : null;
   const row = (label: string, value: string) => `
     <tr>
       <td style="padding: 8px 0; color: #666; font-size: 14px;">${label}</td>

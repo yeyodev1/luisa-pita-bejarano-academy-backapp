@@ -7,6 +7,7 @@ import {
   sendSubscriptionCanceledEmail,
   sendSubscriptionChargeFailedEmail,
   sendSubscriptionScheduledEmail,
+  cardBrandLabel,
 } from "../helpers/email.helper";
 import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 import {
@@ -443,7 +444,7 @@ export async function subscribe(
       user.subscriptionStatus = "active";
       await user.save();
     }
-    const cardLabel = card.number ? `${(card.type || "Tarjeta").toUpperCase()} •••• ${card.number}` : null;
+    const cardLabel = card.number ? `${cardBrandLabel(card.type)} •••• ${card.number}` : null;
     await sendSubscriptionScheduledEmail(user.email, user.name, amount, paidUntil, cardLabel, paymentsUrl()).catch(
       (err) => console.error("[Nuvei] Failed to send scheduled email:", err),
     );
