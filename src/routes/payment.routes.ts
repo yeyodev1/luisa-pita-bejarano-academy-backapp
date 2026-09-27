@@ -30,4 +30,11 @@ router.post("/nuvei/create-link", nuveiController.createLink);
 router.post("/nuvei/webhook", nuveiController.webhook);
 router.get("/nuvei/status/:devReference", nuveiController.status);
 
+// ── Nuvei (Recurrencia: suscripciones con tarjeta guardada) ───────────────────
+router.get("/nuvei/subscription/config", authMiddleware, nuveiController.checkoutConfig);
+router.get("/nuvei/subscription", authMiddleware, nuveiController.mySubscription);
+router.post("/nuvei/subscription", authMiddleware, nuveiController.subscribe);
+router.post("/nuvei/subscription/card", authMiddleware, nuveiController.updateCard);
+router.post("/nuvei/card/verify", authMiddleware, nuveiController.verifyCard);
+
 export default router;

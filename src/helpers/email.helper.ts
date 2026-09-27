@@ -284,3 +284,130 @@ export async function sendManualPaymentReceiptEmail(
     `,
   });
 }
+
+function formatEmailDate(date: Date) {
+  return date.toLocaleDateString("es-EC", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "America/Guayaquil",
+  });
+}
+
+function formatEmailDateTime(date: Date) {
+  return date.toLocaleString("es-EC", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Guayaquil",
+  });
+}
+
+export interface NuveiReceiptEmailInput {
+  to: string;
+  name: string;
+  plan: PaymentPlan;
+  amount: number;
+  vat: number;
+  transactionId: string;
+  authorizationCode: string | null;
+  paidAt: Date;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  accessUntil?: Date | null;
+  /** Si es una suscripción, la fecha del próximo cobro. */
+  nextChargeAt?: Date | null;
+}
+
+/**
+ * Comprobante de pago con tarjeta. Nuvei lo exige como requisito bancario:
+ * detalle de la compra, transaction_id y authorization_code.
+ */
+export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Promise<void> {
+  const plan = PAYMENT_PLANS[input.plan];
+  const name = escapeHtml(input.name);
+  const card =
+    input.cardLast4 ? `${escapeHtml((input.cardBrand || "Tarjeta").toUpperCase())} •••• ${escapeHtml(input.cardLast4)}` : null;
+  const row = (label: string, value: string) => `
+    <tr>
+      <td style="padding: 8px 0; color: #666; font-size: 14px;">${label}</td>
+      <td style="padding: 8px 0; text-align: right; font-size: 14px;"><strong>${value}</strong></td>
+    </tr>`;
+
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to: input.to,
+    subject: `Comprobante de pago — ${plan.label}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${name}</h2>
+        <p>Recibimos tu pago. Este es el detalle de tu compra en <strong>Luisa Pita Bejarano Academy</strong>:</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee;">
+          ${row("Producto", escapeHtml(plan.reference))}
+          ${row("Subtotal", `USD ${(input.amount - input.vat).toFixed(2)}`)}
+          ${row("IVA 15%", `USD ${input.vat.toFixed(2)}`)}
+          ${row("Total pagado", `USD ${input.amount.toFixed(2)}`)}
+          ${row("Fecha", formatEmailDateTime(input.paidAt))}
+          ${card ? row("Tarjeta", card) : ""}
+          ${row("ID de transacción", escapeHtml(input.transactionId))}
+          ${row("Número de autorización", escapeHtml(input.authorizationCode || "—"))}
+        </table>
+        ${input.accessUntil ? `<p>Tu acceso está activo hasta el <strong>${formatEmailDate(input.accessUntil)}</strong>.</p>` : ""}
+        ${
+          input.nextChargeAt
+            ? `<p>Tu suscripción se renovará automáticamente el <strong>${formatEmailDate(input.nextChargeAt)}</strong>. Puedes cancelarla cuando quieras desde la sección Pagos de tu cuenta.</p>`
+            : ""
+        }
+        <p style="font-size: 12px; color: #999; margin-top: 24px;">Guarda este correo como comprobante. Si no reconoces este cargo, responde a este correo o contacta a soporte.</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendSubscriptionChargeFailedEmail(
+  to: string,
+  name: string,
+  plan: PaymentPlan,
+  retryAt: Date | null,
+  paymentsUrl: string,
+): Promise<void> {
+  const label = PAYMENT_PLANS[plan].label;
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "No pudimos renovar tu suscripción",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Intentamos cobrar la renovación de tu <strong>${escapeHtml(label)}</strong> y la tarjeta fue rechazada.</p>
+        ${
+          retryAt
+            ? `<p>Volveremos a intentarlo el <strong>${formatEmailDate(retryAt)}</strong>. Si quieres, puedes actualizar tu tarjeta antes desde tu cuenta.</p>`
+            : `<p>Después de varios intentos, tu suscripción quedó cancelada. Puedes volver a suscribirte cuando quieras.</p>`
+        }
+        <a href="${paymentsUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Ir a mis pagos</a>
+      </div>
+    `,
+  });
+}
+
+export async function sendSubscriptionCanceledEmail(
+  to: string,
+  name: string,
+  accessUntil: Date | null,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu suscripción fue cancelada",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Cancelamos la renovación automática de tu suscripción. No se harán más cobros a tu tarjeta.</p>
+        ${accessUntil && accessUntil > new Date() ? `<p>Conservas tu acceso hasta el <strong>${formatEmailDate(accessUntil)}</strong>.</p>` : ""}
+      </div>
+    `,
+  });
+}

@@ -8,7 +8,7 @@ export interface IPayment extends Document {
   plan: PaymentPlan;
   amount: number;
   currency: "USD";
-  status: "pending" | "approved" | "failed" | "canceled";
+  status: "pending" | "approved" | "failed" | "canceled" | "refunded";
   gateway: PaymentGateway;
   payphoneTransactionId: number | null;
   clientTransactionId: string;
@@ -16,6 +16,18 @@ export interface IPayment extends Document {
   nuveiTransactionId: string | null;
   nuveiLinkId: string | null;
   nuveiResponse: unknown;
+  /** Datos que Nuvei exige incluir en el correo de confirmación. */
+  nuveiAuthorizationCode: string | null;
+  nuveiApplicationCode: string | null;
+  nuveiStatusDetail: number | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  /** link = Link to Pay (pago único); subscription = débito con token. */
+  source: "link" | "subscription" | null;
+  subscription: Types.ObjectId | null;
+  receiptSentAt: Date | null;
+  refundedAt: Date | null;
+  refundDetail: string | null;
   isNewUser: boolean;
   plainPassword: string | null;
   createdAt: Date;
@@ -30,7 +42,7 @@ const paymentSchema = new Schema<IPayment>(
     currency: { type: String, enum: ["USD"], default: "USD" },
     status: {
       type: String,
-      enum: ["pending", "approved", "failed", "canceled"],
+      enum: ["pending", "approved", "failed", "canceled", "refunded"],
       default: "pending",
     },
     gateway: {
@@ -45,6 +57,16 @@ const paymentSchema = new Schema<IPayment>(
     nuveiTransactionId: { type: String, default: null },
     nuveiLinkId: { type: String, default: null },
     nuveiResponse: { type: Schema.Types.Mixed, default: null },
+    nuveiAuthorizationCode: { type: String, default: null },
+    nuveiApplicationCode: { type: String, default: null },
+    nuveiStatusDetail: { type: Number, default: null },
+    cardBrand: { type: String, default: null },
+    cardLast4: { type: String, default: null },
+    source: { type: String, enum: ["link", "subscription", null], default: null },
+    subscription: { type: Schema.Types.ObjectId, ref: "Subscription", default: null, index: true },
+    receiptSentAt: { type: Date, default: null },
+    refundedAt: { type: Date, default: null },
+    refundDetail: { type: String, default: null },
     isNewUser: { type: Boolean, default: false },
     plainPassword: { type: String, default: null },
   },

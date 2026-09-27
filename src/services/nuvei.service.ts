@@ -2,31 +2,40 @@ import axios, { AxiosError } from "axios";
 import crypto from "crypto";
 import { Payment } from "../models/Payment";
 import { User } from "../models/User";
+import { Subscription } from "../models/Subscription";
 import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
-import { grantPlanAccess } from "../helpers/access.helper";
-import {
-  sendPaymentAccessEmail,
-  sendPaymentWelcomeEmail,
-} from "../helpers/email.helper";
-import { sendPurchaseEvent } from "./metaPixel.service";
 import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 import {
   NUVEI_MAX_AMOUNT,
+  NUVEI_TAX_PERCENTAGE,
   buildAuthToken,
-  buildStoken,
+  credentialKindForAppCode,
+  isApprovedTransaction,
   isNuveiEnabled,
+  isValidStoken,
   nuveiBaseUrl,
   nuveiEnvironment,
+  taxableAmountOf,
   vatIncludedIn,
 } from "../config/nuvei";
+import { refundTransaction } from "./nuveiCard.service";
+import {
+  amountMatches,
+  approvePayment,
+  notifyAccessGranted,
+  recordNonApproved,
+  reversePayment,
+  sendReceiptOnce,
+} from "./nuveiPayments.service";
+import { onSubscriptionPaymentApproved } from "./nuveiSubscription.service";
 
 type GuestData = { email: string; name: string; lastName: string };
 
 /**
- * Nuvei permite diferidos; el código exacto depende de la configuración del
- * comercio en Datafast. Este comercio tiene corriente + diferido con intereses
- * a 3 meses. 0 = permitir cuotas, -1 = solo corriente.
+ * installments_type para Ecuador (ver tabla de Nuvei): 0 = solo corriente,
+ * 2 = diferido con intereses. Este comercio tiene corriente + diferido con
+ * intereses a 3 meses; mientras Nuvei no confirme el código queda en 0.
  */
 function installmentsType(): number {
   const raw = Number(process.env.NUVEI_INSTALLMENTS_TYPE);
@@ -66,6 +75,15 @@ function frontendUrl(origin?: string): string {
   return origin || process.env.FRONTEND_URL || "";
 }
 
+type InitOrderResponse = {
+  success?: boolean;
+  detail?: string;
+  data?: { order?: { id?: string }; payment?: { payment_url?: string; payment_qr?: string } };
+  // Algunas versiones responden sin el envoltorio `data`.
+  payment?: { payment_url?: string; payment_qr?: string; id?: string };
+  order?: { id?: string };
+};
+
 /**
  * Crea el link de pago y el registro `pending`. El registro se crea ANTES de
  * redirigir para que el webhook siempre encuentre a qué transacción aplicar.
@@ -103,6 +121,8 @@ export async function createPaymentLink(
       description: reference,
       amount,
       vat: vatIncludedIn(amount),
+      taxable_amount: taxableAmountOf(amount),
+      tax_percentage: NUVEI_TAX_PERCENTAGE,
       installments_type: installmentsType(),
       currency: "USD",
     },
@@ -123,34 +143,37 @@ export async function createPaymentLink(
     amount,
     currency: "USD",
     gateway: "nuvei",
+    source: "link",
     clientTransactionId: devReference,
     isNewUser: isNew,
     plainPassword,
   });
 
   try {
-    const response = await axios.post(
+    const response = await axios.post<InitOrderResponse>(
       `${nuveiBaseUrl()}/linktopay/init_order/`,
       payload,
-      { headers: { "Auth-Token": buildAuthToken(), "Content-Type": "application/json" } },
+      { headers: { "Auth-Token": buildAuthToken("ltp"), "Content-Type": "application/json" } },
     );
 
-    const data = response.data as {
-      payment?: { payment_url?: string; payment_qr?: string; id?: string };
-    };
-    const paymentUrl = data.payment?.payment_url;
+    // La respuesta documentada es { success, detail, data: { order, payment } }.
+    const body = response.data;
+    const payment = body.data?.payment ?? body.payment;
+    const orderId = body.data?.order?.id ?? body.order?.id ?? body.payment?.id ?? null;
+    const paymentUrl = payment?.payment_url;
     if (!paymentUrl) {
+      console.error("[Nuvei] init_order without payment_url:", body);
       throw new CustomError("Nuvei no devolvió un link de pago", 502);
     }
 
     await Payment.updateOne(
       { clientTransactionId: devReference },
-      { $set: { nuveiLinkId: data.payment?.id ?? null, nuveiResponse: data } },
+      { $set: { nuveiLinkId: orderId, nuveiResponse: body } },
     );
 
     return {
       paymentUrl,
-      paymentQr: data.payment?.payment_qr,
+      paymentQr: payment?.payment_qr,
       devReference,
       amount,
       isNewUser: isNew,
@@ -170,40 +193,41 @@ export async function createPaymentLink(
 type NuveiWebhookBody = {
   transaction?: {
     id?: string;
-    status?: string;
+    status?: string | number;
     status_detail?: string | number;
     dev_reference?: string;
     stoken?: string;
     amount?: string | number;
     authorization_code?: string;
+    application_code?: string;
+    ltp_id?: string;
     message?: string;
   };
   user?: { id?: string; email?: string };
+  card?: { type?: string; number?: string; bin?: string };
 };
 
-/** status: 0 pendiente · 1 aprobada · 2 cancelada · 4 rechazada · 5 expirada */
-function mapStatus(status?: string): "pending" | "approved" | "canceled" | "failed" {
-  switch (String(status)) {
-    case "1":
-      return "approved";
-    case "0":
-      return "pending";
-    case "2":
-      return "canceled";
-    default:
-      return "failed";
-  }
-}
+export type WebhookResult = {
+  /** 200 = recibido; 203 = stoken inválido (así lo pide Nuvei). */
+  httpStatus: 200 | 203;
+  status?: string;
+  accessGranted?: boolean;
+  ignored?: string;
+};
 
 /**
- * Confirmación servidor-a-servidor. Es la fuente de verdad: el retorno del
- * navegador solo consulta el estado ya persistido aquí.
+ * Confirmación servidor-a-servidor (callback). Es la fuente de verdad: el
+ * retorno del navegador solo consulta el estado ya persistido aquí.
+ *
+ * Reglas de Nuvei: aprobar solo con status 1 + status_detail 3 y monto
+ * correcto; responder 200 aunque sea un duplicado; status 2 = una transacción
+ * aprobada que luego se anuló o reembolsó.
  */
-export async function handleWebhook(body: NuveiWebhookBody) {
+export async function handleWebhook(body: NuveiWebhookBody): Promise<WebhookResult> {
   // Sin credenciales no se puede validar la firma. Se corta acá para no
   // reventar en un 500 que además dispara la alerta de Slack: este endpoint es
   // público y recibe sondeos.
-  if (!isNuveiEnabled() || !process.env.NUVEI_APP_KEY) {
+  if (!isNuveiEnabled()) {
     throw new CustomError("Nuvei no está habilitado", 401);
   }
 
@@ -216,75 +240,56 @@ export async function handleWebhook(body: NuveiWebhookBody) {
     throw new CustomError("Webhook inválido", 400);
   }
 
-  const expectedStoken = buildStoken(transactionId, userId);
-  const receivedStoken = String(transaction?.stoken ?? "");
-  const expectedBuffer = Buffer.from(expectedStoken);
-  const receivedBuffer = Buffer.from(receivedStoken);
-  const stokenOk =
-    expectedBuffer.length === receivedBuffer.length &&
-    crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
-  if (!stokenOk) {
-    throw new CustomError("Firma del webhook inválida", 401);
+  if (!isValidStoken(String(transaction?.stoken ?? ""), transactionId, transaction?.application_code, userId)) {
+    console.warn("[Nuvei] Webhook with invalid stoken:", transactionId);
+    return { httpStatus: 203, ignored: "invalid stoken" };
   }
 
-  const status = mapStatus(transaction?.status);
-
-  const session = await Payment.startSession();
-  let accessGranted = false;
-  try {
-    await session.withTransaction(async () => {
-      accessGranted = false;
-      const payment = await Payment.findOne({
-        clientTransactionId: devReference,
-        gateway: "nuvei",
-      }).session(session);
-      if (!payment) throw new CustomError("Transacción no encontrada", 404);
-
-      // Idempotencia: Nuvei reintenta el webhook hasta recibir 200.
-      if (payment.status === "approved") return;
-
-      payment.status = status;
-      payment.nuveiTransactionId = transactionId;
-      payment.nuveiResponse = body;
-
-      if (status === "approved") {
-        const user = await User.findById(payment.user).session(session);
-        if (!user) throw new CustomError("Usuario no encontrado", 404);
-        await grantPlanAccess(user, payment.plan, { session });
-        accessGranted = true;
-      }
-
-      await payment.save({ session });
-    });
-  } finally {
-    await session.endSession();
+  const payment = await Payment.findOne({ clientTransactionId: devReference, gateway: "nuvei" });
+  if (!payment) {
+    // 200 para que Nuvei no reintente 48 horas algo que no es nuestro.
+    return { httpStatus: 200, ignored: "unknown dev_reference" };
   }
 
-  if (!accessGranted) return { status, accessGranted: false };
+  const facts = {
+    transaction: { ...transaction, status: String(transaction.status ?? "") },
+    card: body.card,
+    applicationCode: transaction.application_code ?? null,
+  };
+  const status = String(transaction.status ?? "");
 
-  const payment = await Payment.findOne({ clientTransactionId: devReference });
-  const user = payment ? await User.findById(payment.user) : null;
-  if (payment && user) {
-    const loginUrl = `${process.env.FRONTEND_URL}/login`;
-    try {
-      if (payment.plainPassword) {
-        await sendPaymentWelcomeEmail(user.email, user.name, payment.plainPassword, loginUrl);
-      } else {
-        await sendPaymentAccessEmail(user.email, user.name, loginUrl);
-      }
-    } catch (err) {
-      console.error("[Nuvei] Failed to send access email:", err);
+  if (status === "2") {
+    const refunded = String(transaction.status_detail) === "7";
+    await reversePayment(payment, refunded ? "refunded" : "canceled", transaction.message ?? null);
+    return { httpStatus: 200, status: refunded ? "refunded" : "canceled", accessGranted: false };
+  }
+
+  if (isApprovedTransaction(status, transaction.status_detail)) {
+    if (!amountMatches(payment, transaction.amount)) {
+      console.error("[Nuvei] Amount mismatch", { devReference, expected: payment.amount, got: transaction.amount });
+      await recordNonApproved(devReference, "failed", facts);
+      return { httpStatus: 200, status: "failed", accessGranted: false, ignored: "amount mismatch" };
     }
 
-    sendPurchaseEvent({
-      email: user.email,
-      value: payment.amount,
-      currency: payment.currency || "USD",
-      eventSourceUrl: process.env.FRONTEND_URL,
-    }).catch((err) => console.error("[Nuvei] Meta Pixel purchase failed:", err));
+    const isSubscription = payment.source === "subscription";
+    const granted = await approvePayment(devReference, facts, { extendAccess: isSubscription });
+    if (granted) {
+      const approved = await Payment.findById(payment._id);
+      if (approved) {
+        if (isSubscription) await onSubscriptionPaymentApproved(approved);
+        else await notifyAccessGranted(approved);
+        await sendReceiptOnce(approved._id);
+      }
+    } else {
+      // Duplicado: igual se reintenta el comprobante por si falló antes.
+      await sendReceiptOnce(payment._id);
+    }
+    return { httpStatus: 200, status: "approved", accessGranted: granted };
   }
 
-  return { status, accessGranted: true };
+  const mapped = status === "0" || status === "1" ? "pending" : "failed";
+  await recordNonApproved(devReference, mapped, facts);
+  return { httpStatus: 200, status: mapped, accessGranted: false };
 }
 
 /** Estado para la vista de retorno del navegador. No consulta a Nuvei. */
@@ -301,8 +306,84 @@ export async function getPaymentStatus(devReference: string) {
     plan: payment.plan,
     amount: payment.amount,
     transactionId: payment.nuveiTransactionId ?? undefined,
+    authorizationCode: payment.nuveiAuthorizationCode ?? undefined,
     isNewUser: payment.isNewUser,
     plainPassword: payment.plainPassword || undefined,
     email: user?.email,
   };
+}
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+export async function listNuveiPayments(filters: { search?: string; status?: string; limit?: number }) {
+  const query: Record<string, unknown> = { gateway: "nuvei" };
+  if (filters.status) query.status = filters.status;
+  if (filters.search?.trim()) {
+    const regex = new RegExp(filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const users = await User.find({ $or: [{ email: regex }, { name: regex }, { lastName: regex }] }).select("_id");
+    query.$or = [
+      { user: { $in: users.map((u) => u._id) } },
+      { nuveiTransactionId: regex },
+      { clientTransactionId: regex },
+    ];
+  }
+
+  const payments = await Payment.find(query)
+    .sort({ createdAt: -1 })
+    .limit(Math.min(filters.limit ?? 100, 500))
+    .populate("user", "name lastName email");
+
+  return payments.map((p) => ({
+    id: p._id.toString(),
+    user: p.user,
+    plan: p.plan,
+    amount: p.amount,
+    status: p.status,
+    source: p.source ?? "link",
+    transactionId: p.nuveiTransactionId,
+    authorizationCode: p.nuveiAuthorizationCode,
+    statusDetail: p.nuveiStatusDetail,
+    cardBrand: p.cardBrand,
+    cardLast4: p.cardLast4,
+    devReference: p.clientTransactionId,
+    refundedAt: p.refundedAt,
+    refundDetail: p.refundDetail,
+    receiptSentAt: p.receiptSentAt,
+    createdAt: p.createdAt,
+  }));
+}
+
+/**
+ * Reembolso total desde el admin. Requisito bancario de Nuvei. Quita el acceso
+ * que dio el pago y, si era de una suscripción, la cancela.
+ */
+export async function refundNuveiPayment(paymentId: string) {
+  assertEnabled();
+  const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
+  if (!payment) throw new CustomError("Pago no encontrado", 404);
+  if (payment.status === "refunded") throw new CustomError("Este pago ya fue reembolsado", 409);
+  if (payment.status !== "approved" || !payment.nuveiTransactionId) {
+    throw new CustomError("Solo se pueden reembolsar pagos aprobados", 409);
+  }
+
+  const kind =
+    credentialKindForAppCode(payment.nuveiApplicationCode) ??
+    (payment.source === "subscription" ? "cardServer" : "ltp");
+
+  const result = await refundTransaction(payment.nuveiTransactionId, kind);
+  if (result.status === "failure") {
+    throw new CustomError(`Nuvei rechazó el reembolso: ${result.detail || "sin detalle"}`, 409);
+  }
+
+  // "pending" = Nuvei espera confirmación del banco; igual se quita el acceso.
+  await reversePayment(payment, "refunded", `${result.status}: ${result.detail}`);
+
+  if (payment.subscription) {
+    await Subscription.updateOne(
+      { _id: payment.subscription, status: { $ne: "canceled" } },
+      { $set: { status: "canceled", canceledAt: new Date(), cancelReason: "refund" } },
+    );
+  }
+
+  return { id: payment._id.toString(), status: payment.status, refundStatus: result.status, detail: result.detail };
 }
