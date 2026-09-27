@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import { AuthRequest } from "../types/AuthRequest";
 import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
-import { isPaymentPlan } from "../config/paymentPlans";
 import { requireString } from "../helpers/validation.helper";
 import { areSubscriptionsEnabled, isNuveiEnabled } from "../config/nuvei";
 import * as service from "../services/nuvei.service";
@@ -18,26 +17,6 @@ function clientIp(req: Request): string | undefined {
 function userIdOf(req: AuthRequest): string {
   if (!req.user) throw new CustomError("Unauthorized", 401);
   return req.user.userId;
-}
-
-export async function createLink(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { plan, email, name, lastName, origin } = req.body ?? {};
-    if (!isPaymentPlan(plan)) throw new CustomError("Plan inválido", 400);
-
-    const result = await service.createPaymentLink(
-      plan,
-      {
-        email: requireString(email, "email"),
-        name: requireString(name, "name"),
-        lastName: requireString(lastName ?? name, "lastName"),
-      },
-      typeof origin === "string" ? origin : undefined,
-    );
-    successResponse(res, result, "Link de pago generado", 201);
-  } catch (error) {
-    next(error);
-  }
 }
 
 /**
@@ -95,14 +74,13 @@ export async function verifyCard(req: AuthRequest, res: Response, next: NextFunc
   }
 }
 
+/** Suscripción mensual. cardToken es opcional: por defecto usa la tarjeta principal. */
 export async function subscribe(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { plan, cardToken } = req.body ?? {};
-    if (!isPaymentPlan(plan)) throw new CustomError("Plan inválido", 400);
+    const { cardToken } = req.body ?? {};
     const result = await subscriptionService.subscribe(
       userIdOf(req),
-      plan,
-      requireString(cardToken, "cardToken"),
+      typeof cardToken === "string" && cardToken.trim() ? cardToken.trim() : undefined,
       clientIp(req),
     );
     successResponse(res, result, "Suscripción procesada", 201);
@@ -111,15 +89,46 @@ export async function subscribe(req: AuthRequest, res: Response, next: NextFunct
   }
 }
 
-export async function updateCard(req: AuthRequest, res: Response, next: NextFunction) {
+export async function listCards(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { cardToken } = req.body ?? {};
-    const result = await subscriptionService.updateCard(
+    successResponse(res, { cards: await subscriptionService.listMyCards(userIdOf(req)) }, "Tarjetas obtenidas");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function saveCard(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { cardToken, makeDefault } = req.body ?? {};
+    const result = await subscriptionService.saveCard(
       userIdOf(req),
       requireString(cardToken, "cardToken"),
+      makeDefault === true,
       clientIp(req),
     );
-    successResponse(res, result, "Tarjeta actualizada");
+    successResponse(res, result, "Tarjeta guardada", 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function setDefaultCard(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const result = await subscriptionService.setDefaultCard(
+      userIdOf(req),
+      requireString(req.params.token, "token"),
+      clientIp(req),
+    );
+    successResponse(res, result, "Tarjeta principal actualizada");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeCard(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const result = await subscriptionService.removeCard(userIdOf(req), requireString(req.params.token, "token"));
+    successResponse(res, result, "Tarjeta eliminada");
   } catch (error) {
     next(error);
   }

@@ -23,18 +23,20 @@ router.post("/resend-welcome-public", paymentController.resendWelcomePublic);
 router.post("/cancel-pending", authMiddleware, paymentController.cancelPending);
 router.post("/cancel-subscription", authMiddleware, paymentController.cancelSubscription);
 
-// ── Nuvei (Link to Pay) ───────────────────────────────────────────────────────
+// ── Nuvei ─────────────────────────────────────────────────────────────────────
 // El webhook es público a propósito: lo llama Nuvei y se valida con el stoken.
 router.get("/nuvei/health", nuveiController.health);
-router.post("/nuvei/create-link", nuveiController.createLink);
 router.post("/nuvei/webhook", nuveiController.webhook);
 router.get("/nuvei/status/:devReference", nuveiController.status);
 
-// ── Nuvei (Recurrencia: suscripciones con tarjeta guardada) ───────────────────
+// ── Nuvei (Recurrencia: suscripción mensual y tarjetas guardadas) ─────────────
 router.get("/nuvei/subscription/config", authMiddleware, nuveiController.checkoutConfig);
 router.get("/nuvei/subscription", authMiddleware, nuveiController.mySubscription);
 router.post("/nuvei/subscription", authMiddleware, nuveiController.subscribe);
-router.post("/nuvei/subscription/card", authMiddleware, nuveiController.updateCard);
 router.post("/nuvei/card/verify", authMiddleware, nuveiController.verifyCard);
+router.get("/nuvei/cards", authMiddleware, nuveiController.listCards);
+router.post("/nuvei/cards", authMiddleware, nuveiController.saveCard);
+router.post("/nuvei/cards/:token/default", authMiddleware, nuveiController.setDefaultCard);
+router.delete("/nuvei/cards/:token", authMiddleware, nuveiController.removeCard);
 
 export default router;

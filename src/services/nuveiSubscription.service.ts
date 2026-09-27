@@ -6,6 +6,7 @@ import { addMonths } from "../helpers/access.helper";
 import {
   sendSubscriptionCanceledEmail,
   sendSubscriptionChargeFailedEmail,
+  sendSubscriptionScheduledEmail,
 } from "../helpers/email.helper";
 import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 import {
@@ -28,8 +29,12 @@ import {
  * Suscripciones con Nuvei Recurrencia: la tarjeta se tokeniza en el navegador
  * (credencial CLIENT, con OTP) y los cobros los hace el backend con débito con
  * token (credencial SERVER, sin 3DS). El cron diario cobra lo que vence.
+ *
+ * Modelo de negocio: una única suscripción mensual con renovación automática.
+ * La alumna puede guardar varias tarjetas; se cobra siempre a la principal.
  */
 
+export const SUBSCRIPTION_PLAN: PaymentPlan = "monthly";
 export const MAX_FAILED_ATTEMPTS = 3;
 const RETRY_AFTER_DAYS = 2;
 const PENDING_RECHECK_HOURS = 24;
@@ -83,6 +88,8 @@ export async function getCheckoutConfig(userId: string) {
   const enabled = areSubscriptionsEnabled();
   return {
     enabled,
+    plan: SUBSCRIPTION_PLAN,
+    amount: PAYMENT_PLANS[SUBSCRIPTION_PLAN].amount,
     environment: nuveiEnvironment(),
     appCode: enabled ? client?.appCode ?? null : null,
     appKey: enabled ? client?.appKey ?? null : null,
@@ -105,6 +112,97 @@ async function resolveCard(userId: string, cardToken: string) {
     );
   }
   return card;
+}
+
+// ── Tarjetas guardadas ────────────────────────────────────────────────────────
+// Nuvei es la fuente de verdad de las tarjetas (list/delete por uid). Nosotros
+// solo recordamos cuál es la principal.
+
+export async function listMyCards(userId: string) {
+  assertSubscriptionsEnabled();
+  const user = await User.findById(userId);
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+  const cards = await listCards(userId);
+
+  // Si la principal ya no existe en Nuvei, se promueve la primera válida.
+  let defaultToken = user.nuveiDefaultCardToken;
+  const valid = cards.filter((c) => c.status === "valid");
+  if (!valid.some((c) => c.token === defaultToken)) {
+    defaultToken = valid[0]?.token ?? null;
+    if (defaultToken !== user.nuveiDefaultCardToken) {
+      user.nuveiDefaultCardToken = defaultToken;
+      await user.save();
+    }
+  }
+
+  return cards.map((c) => ({
+    token: c.token,
+    brand: c.type ?? null,
+    last4: c.number ?? null,
+    bin: c.bin ?? null,
+    expiryMonth: c.expiry_month ?? null,
+    expiryYear: c.expiry_year ?? null,
+    holderName: c.holder_name ?? null,
+    status: c.status ?? null,
+    isDefault: c.token === defaultToken,
+  }));
+}
+
+/** Pasa la suscripción vigente a la tarjeta indicada (y cobra si estaba en mora). */
+async function syncSubscriptionCard(userId: string, cardToken: string, ip?: string) {
+  const sub = await currentSubscription(userId);
+  if (!sub) return null;
+  const card = await resolveCard(userId, cardToken);
+  sub.cardToken = cardToken;
+  sub.cardBrand = card.type ?? null;
+  sub.cardLast4 = card.number ?? null;
+  sub.cardBin = card.bin ?? null;
+  await sub.save();
+  return sub.status === "past_due" ? chargeSubscription(sub._id.toString(), { ip }) : null;
+}
+
+/** Registra una tarjeta recién tokenizada. La primera queda como principal. */
+export async function saveCard(userId: string, cardToken: string, makeDefault: boolean, ip?: string) {
+  assertSubscriptionsEnabled();
+  await resolveCard(userId, cardToken);
+  const user = await User.findById(userId);
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+
+  let charge: ChargeResult | null = null;
+  if (makeDefault || !user.nuveiDefaultCardToken) {
+    user.nuveiDefaultCardToken = cardToken;
+    await user.save();
+    charge = await syncSubscriptionCard(userId, cardToken, ip);
+  }
+  return { cards: await listMyCards(userId), charge };
+}
+
+export async function setDefaultCard(userId: string, cardToken: string, ip?: string) {
+  assertSubscriptionsEnabled();
+  await resolveCard(userId, cardToken);
+  await User.updateOne({ _id: userId }, { $set: { nuveiDefaultCardToken: cardToken } });
+  const charge = await syncSubscriptionCard(userId, cardToken, ip);
+  return { cards: await listMyCards(userId), charge, subscription: await getMySubscription(userId) };
+}
+
+export async function removeCard(userId: string, cardToken: string) {
+  assertSubscriptionsEnabled();
+  const user = await User.findById(userId);
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+  const sub = await currentSubscription(userId);
+  if (sub && sub.cardToken === cardToken) {
+    throw new CustomError(
+      "Esta tarjeta paga tu suscripción. Elige otra tarjeta como principal antes de eliminarla.",
+      409,
+    );
+  }
+
+  await deleteCard(userId, cardToken);
+  if (user.nuveiDefaultCardToken === cardToken) {
+    user.nuveiDefaultCardToken = null;
+    await user.save();
+  }
+  return { cards: await listMyCards(userId) };
 }
 
 /** Verifica con el OTP del banco una tarjeta recién agregada (status pending). */
@@ -289,14 +387,16 @@ export async function onSubscriptionPaymentApproved(payment: IPayment) {
   await sub.save();
 }
 
-/** Alta: valida la tarjeta, crea la suscripción y hace el primer cobro. */
-export async function subscribe(
-  userId: string,
-  plan: PaymentPlan,
-  cardToken: string,
-  ip?: string,
-) {
+/**
+ * Alta de la suscripción mensual con la tarjeta indicada o la principal.
+ *
+ * Cambio de forma de pago: si la alumna ya tiene acceso pagado (PayPhone,
+ * transferencia), NO se cobra hoy; el primer cobro es el día en que vence ese
+ * acceso. Si no tiene acceso vigente, se cobra de inmediato.
+ */
+export async function subscribe(userId: string, requestedToken: string | undefined, ip?: string) {
   assertSubscriptionsEnabled();
+  const plan = SUBSCRIPTION_PLAN;
   const { amount } = PAYMENT_PLANS[plan];
   if (amount > NUVEI_MAX_AMOUNT) {
     throw new CustomError(`El plan excede el límite de $${NUVEI_MAX_AMOUNT} autorizado por Nuvei`, 400);
@@ -305,7 +405,21 @@ export async function subscribe(
     throw new CustomError("Ya tienes una suscripción activa. Cancélala antes de cambiar de plan.", 409);
   }
 
+  const user = await User.findById(userId);
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+  if (user.subscriptionStatus === "active" && !user.accessUntil) {
+    throw new CustomError("Tu acceso no tiene fecha de vencimiento; no necesitas una suscripción.", 409);
+  }
+  const now = new Date();
+  const paidUntil = user.accessUntil && user.accessUntil > now ? user.accessUntil : null;
+  const cardToken = requestedToken || user.nuveiDefaultCardToken;
+  if (!cardToken) throw new CustomError("Agrega una tarjeta para suscribirte.", 400);
+
   const card = await resolveCard(userId, cardToken);
+  if (!user.nuveiDefaultCardToken || requestedToken) {
+    user.nuveiDefaultCardToken = cardToken;
+    await user.save();
+  }
   const sub = await Subscription.create({
     user: userId,
     plan,
@@ -315,34 +429,25 @@ export async function subscribe(
     cardBrand: card.type ?? null,
     cardLast4: card.number ?? null,
     cardBin: card.bin ?? null,
-    nextChargeAt: new Date(),
+    nextChargeAt: paidUntil ?? now,
   });
+
+  if (paidUntil) {
+    // Renueva sin cobrar hoy: vuelve a quedar "activa" aunque antes la hubiera cancelado.
+    if (user.subscriptionStatus !== "active") {
+      user.subscriptionStatus = "active";
+      await user.save();
+    }
+    const cardLabel = card.number ? `${(card.type || "Tarjeta").toUpperCase()} •••• ${card.number}` : null;
+    await sendSubscriptionScheduledEmail(user.email, user.name, amount, paidUntil, cardLabel, paymentsUrl()).catch(
+      (err) => console.error("[Nuvei] Failed to send scheduled email:", err),
+    );
+    return { charge: null, firstChargeAt: paidUntil, subscription: serialize(sub) };
+  }
 
   const charge = await chargeSubscription(sub._id.toString(), { initial: true, ip });
   const fresh = await Subscription.findById(sub._id);
-  return { charge, subscription: serialize(fresh) };
-}
-
-/** Cambia la tarjeta. Si la suscripción estaba en mora, cobra de inmediato. */
-export async function updateCard(userId: string, cardToken: string, ip?: string) {
-  assertSubscriptionsEnabled();
-  const sub = await currentSubscription(userId);
-  if (!sub) throw new CustomError("No tienes una suscripción activa", 404);
-
-  const card = await resolveCard(userId, cardToken);
-  const previousToken = sub.cardToken;
-  sub.cardToken = cardToken;
-  sub.cardBrand = card.type ?? null;
-  sub.cardLast4 = card.number ?? null;
-  sub.cardBin = card.bin ?? null;
-  await sub.save();
-
-  if (previousToken !== cardToken) {
-    deleteCard(userId, previousToken).catch((err) => console.error("[Nuvei] Old card delete failed:", err));
-  }
-
-  const charge = sub.status === "past_due" ? await chargeSubscription(sub._id.toString(), { ip }) : null;
-  return { charge, subscription: serialize(await Subscription.findById(sub._id)) };
+  return { charge, firstChargeAt: null, subscription: serialize(fresh) };
 }
 
 export async function getMySubscription(userId: string) {
@@ -367,7 +472,6 @@ async function cancelSubscriptionDoc(sub: ISubscription, reason: string) {
 
   const user = await User.findById(sub.user);
   if (user) {
-    deleteCard(user._id.toString(), sub.cardToken).catch((err) => console.error("[Nuvei] Card delete failed:", err));
     await sendSubscriptionCanceledEmail(user.email, user.name, user.accessUntil).catch((err) =>
       console.error("[Nuvei] Failed to send canceled email:", err),
     );

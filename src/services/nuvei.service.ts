@@ -1,23 +1,12 @@
-import axios, { AxiosError } from "axios";
-import crypto from "crypto";
 import { Payment } from "../models/Payment";
 import { User } from "../models/User";
 import { Subscription } from "../models/Subscription";
 import { CustomError } from "../errors/customError.error";
-import { hashPassword } from "../helpers/password.helper";
-import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 import {
-  NUVEI_MAX_AMOUNT,
-  NUVEI_TAX_PERCENTAGE,
-  buildAuthToken,
   credentialKindForAppCode,
   isApprovedTransaction,
   isNuveiEnabled,
   isValidStoken,
-  nuveiBaseUrl,
-  nuveiEnvironment,
-  taxableAmountOf,
-  vatIncludedIn,
 } from "../config/nuvei";
 import { refundTransaction } from "./nuveiCard.service";
 import {
@@ -30,17 +19,10 @@ import {
 } from "./nuveiPayments.service";
 import { onSubscriptionPaymentApproved } from "./nuveiSubscription.service";
 
-type GuestData = { email: string; name: string; lastName: string };
-
 /**
- * installments_type para Ecuador (ver tabla de Nuvei): 0 = solo corriente,
- * 2 = diferido con intereses. Este comercio tiene corriente + diferido con
- * intereses a 3 meses; mientras Nuvei no confirme el código queda en 0.
+ * Nuvei LATAM: webhook, estado y reembolsos. Los cobros son solo con tarjeta
+ * guardada (ver nuveiSubscription.service); Link to Pay no se usa.
  */
-function installmentsType(): number {
-  const raw = Number(process.env.NUVEI_INSTALLMENTS_TYPE);
-  return Number.isFinite(raw) ? raw : 0;
-}
 
 function assertEnabled() {
   if (!isNuveiEnabled()) {
@@ -48,145 +30,6 @@ function assertEnabled() {
       "Nuvei aún no está habilitado. Falta la confirmación oficial de activación del comercio.",
       503,
     );
-  }
-}
-
-async function findOrCreateGuestUser(input: GuestData) {
-  const normalizedEmail = input.email.toLowerCase().trim();
-  const existing = await User.findOne({ email: normalizedEmail });
-  if (existing) return { user: existing, isNew: false, plainPassword: null };
-
-  const plainPassword = crypto.randomBytes(8).toString("hex");
-  const user = await User.create({
-    name: input.name.trim(),
-    lastName: input.lastName.trim(),
-    email: normalizedEmail,
-    password: await hashPassword(plainPassword),
-    isVerified: true,
-    verificationToken: null,
-    verificationTokenExpires: null,
-    subscriptionStatus: "none",
-    accessUntil: null,
-  });
-  return { user, isNew: true, plainPassword };
-}
-
-function frontendUrl(origin?: string): string {
-  return origin || process.env.FRONTEND_URL || "";
-}
-
-type InitOrderResponse = {
-  success?: boolean;
-  detail?: string;
-  data?: { order?: { id?: string }; payment?: { payment_url?: string; payment_qr?: string } };
-  // Algunas versiones responden sin el envoltorio `data`.
-  payment?: { payment_url?: string; payment_qr?: string; id?: string };
-  order?: { id?: string };
-};
-
-/**
- * Crea el link de pago y el registro `pending`. El registro se crea ANTES de
- * redirigir para que el webhook siempre encuentre a qué transacción aplicar.
- */
-export async function createPaymentLink(
-  plan: PaymentPlan,
-  guestData: GuestData,
-  origin?: string,
-) {
-  assertEnabled();
-
-  const { amount, reference } = PAYMENT_PLANS[plan];
-  if (amount > NUVEI_MAX_AMOUNT) {
-    throw new CustomError(
-      `El plan excede el límite de $${NUVEI_MAX_AMOUNT} autorizado por Nuvei`,
-      400,
-    );
-  }
-
-  const { user, isNew, plainPassword } = await findOrCreateGuestUser(guestData);
-  const userId = user._id.toString();
-  const env = nuveiEnvironment();
-  const devReference = `nuvei-${env}-${userId}-${Date.now()}`;
-  const base = frontendUrl(origin);
-
-  const payload = {
-    user: {
-      id: userId,
-      email: user.email,
-      name: user.name,
-      last_name: user.lastName || user.name,
-    },
-    order: {
-      dev_reference: devReference,
-      description: reference,
-      amount,
-      vat: vatIncludedIn(amount),
-      taxable_amount: taxableAmountOf(amount),
-      tax_percentage: NUVEI_TAX_PERCENTAGE,
-      installments_type: installmentsType(),
-      currency: "USD",
-    },
-    configuration: {
-      partial_payment: false,
-      expiration_days: 1,
-      allowed_payment_methods: ["All"],
-      success_url: `${base}/pago/nuvei?ref=${devReference}&status=success`,
-      failure_url: `${base}/pago/nuvei?ref=${devReference}&status=failure`,
-      pending_url: `${base}/pago/nuvei?ref=${devReference}&status=pending`,
-      review_url: `${base}/pago/nuvei?ref=${devReference}&status=review`,
-    },
-  };
-
-  await Payment.create({
-    user: userId,
-    plan,
-    amount,
-    currency: "USD",
-    gateway: "nuvei",
-    source: "link",
-    clientTransactionId: devReference,
-    isNewUser: isNew,
-    plainPassword,
-  });
-
-  try {
-    const response = await axios.post<InitOrderResponse>(
-      `${nuveiBaseUrl()}/linktopay/init_order/`,
-      payload,
-      { headers: { "Auth-Token": buildAuthToken("ltp"), "Content-Type": "application/json" } },
-    );
-
-    // La respuesta documentada es { success, detail, data: { order, payment } }.
-    const body = response.data;
-    const payment = body.data?.payment ?? body.payment;
-    const orderId = body.data?.order?.id ?? body.order?.id ?? body.payment?.id ?? null;
-    const paymentUrl = payment?.payment_url;
-    if (!paymentUrl) {
-      console.error("[Nuvei] init_order without payment_url:", body);
-      throw new CustomError("Nuvei no devolvió un link de pago", 502);
-    }
-
-    await Payment.updateOne(
-      { clientTransactionId: devReference },
-      { $set: { nuveiLinkId: orderId, nuveiResponse: body } },
-    );
-
-    return {
-      paymentUrl,
-      paymentQr: payment?.payment_qr,
-      devReference,
-      amount,
-      isNewUser: isNew,
-    };
-  } catch (error) {
-    await Payment.updateOne(
-      { clientTransactionId: devReference },
-      { $set: { status: "failed" } },
-    );
-    if (error instanceof CustomError) throw error;
-    const axiosError = error as AxiosError;
-    console.error("[Nuvei] init_order failed:", axiosError.response?.data ?? axiosError.message);
-    throw new CustomError("No se pudo generar el link de pago", 502);
   }
 }
 

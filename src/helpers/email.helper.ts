@@ -411,3 +411,34 @@ export async function sendSubscriptionCanceledEmail(
     `,
   });
 }
+
+/**
+ * Cambio de forma de pago: la alumna registró su tarjeta teniendo acceso ya
+ * pagado. Se le confirma que hoy no se cobró nada y cuándo será el primer cobro.
+ */
+export async function sendSubscriptionScheduledEmail(
+  to: string,
+  name: string,
+  amount: number,
+  firstChargeAt: Date,
+  cardLabel: string | null,
+  paymentsUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu tarjeta quedó registrada — hoy no se cobró nada",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Gracias por actualizar tu forma de pago. Tu suscripción mensual quedó activa${cardLabel ? ` con la tarjeta <strong>${escapeHtml(cardLabel)}</strong>` : ""}.</p>
+        <div style="margin: 16px 0; padding: 16px; background: #f0fff8; border: 1px solid #16c784; border-radius: 8px;">
+          <strong>Hoy no se realizó ningún cobro.</strong><br />
+          Tu acceso actual sigue vigente y el primer cobro de USD ${amount.toFixed(2)} será el <strong>${formatEmailDate(firstChargeAt)}</strong>. Después se renovará cada mes.
+        </div>
+        <p>Puedes cambiar tu tarjeta o cancelar la renovación cuando quieras desde tu cuenta.</p>
+        <a href="${paymentsUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Ver mis pagos</a>
+      </div>
+    `,
+  });
+}
