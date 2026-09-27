@@ -17,7 +17,14 @@ import {
   isApprovedTransaction,
   nuveiEnvironment,
 } from "../config/nuvei";
-import { debitWithToken, deleteCard, listCards, verifyTransaction } from "./nuveiCard.service";
+import {
+  NuveiTransaction,
+  debitWithToken,
+  deleteCard,
+  getTransaction,
+  listCards,
+  verifyTransaction,
+} from "./nuveiCard.service";
 import {
   amountMatches,
   approvePayment,
@@ -219,11 +226,38 @@ export async function verifyCardOtp(userId: string, transactionId: string, otp: 
 }
 
 type ChargeResult = {
-  status: "approved" | "pending" | "failed" | "duplicate" | "locked";
+  /** otp_required: el banco (p. ej. Diners) pide un código para terminar el cobro. */
+  status: "approved" | "pending" | "failed" | "duplicate" | "locked" | "otp_required";
   paymentId?: string;
   transactionId?: string;
   message?: string;
 };
+
+/** Nuvei deja el débito esperando el código del banco (tarjetas Diners, por ejemplo). */
+function isWaitingOtp(transaction: NuveiTransaction) {
+  return (
+    String(transaction.status) === "pending" &&
+    (transaction.carrier_code === "WAITING_OTP" || String(transaction.status_detail) === "31")
+  );
+}
+
+type ChargeFacts = Parameters<typeof approvePayment>[1];
+
+/** Aprueba un cobro de suscripción: acceso, próximo cobro, correos. */
+async function finalizeApprovedCharge(
+  paymentId: IPayment["_id"],
+  devReference: string,
+  facts: ChargeFacts,
+  options: { initial?: boolean; accessEmail?: boolean },
+) {
+  const granted = await approvePayment(devReference, facts, { extendAccess: true });
+  const approved = await Payment.findById(paymentId);
+  if (granted && approved) {
+    await onSubscriptionPaymentApproved(approved);
+    if (options.initial) await notifyAccessGranted(approved, { email: options.accessEmail });
+    await sendReceiptOnce(approved._id);
+  }
+}
 
 /** Fecha en Ecuador para la referencia: a lo sumo un cobro por día y por intento. */
 function chargeReference(sub: ISubscription) {
@@ -290,14 +324,34 @@ export async function chargeSubscription(
     };
 
     if (isApprovedTransaction(transaction.status, transaction.status_detail) && amountMatches(payment, transaction.amount)) {
-      const granted = await approvePayment(devReference, facts, { extendAccess: true });
-      const approved = await Payment.findById(payment._id);
-      if (granted && approved) {
-        await onSubscriptionPaymentApproved(approved);
-        if (options.initial) await notifyAccessGranted(approved, { email: options.accessEmail });
-        await sendReceiptOnce(approved._id);
-      }
+      await finalizeApprovedCharge(payment._id, devReference, facts, options);
       return { status: "approved", paymentId: payment._id.toString(), transactionId: transaction.id };
+    }
+
+    // El banco pide un código (OTP). Con la alumna presente se lo pedimos en
+    // pantalla; en una renovación automática no hay quién lo ingrese.
+    if (isWaitingOtp(transaction)) {
+      if (options.initial) {
+        await recordNonApproved(devReference, "pending", facts);
+        await Subscription.updateOne(
+          { _id: sub._id },
+          { $set: { nextChargeAt: new Date(now.getTime() + PENDING_RECHECK_HOURS * 3600 * 1000) } },
+        );
+        return {
+          status: "otp_required",
+          paymentId: payment._id.toString(),
+          transactionId: transaction.id,
+          message: "Tu banco envió un código de verificación para confirmar el pago.",
+        };
+      }
+      await recordNonApproved(devReference, "failed", facts);
+      await registerFailedCharge(sub, "El banco pidió un código OTP en la renovación automática", false);
+      return {
+        status: "failed",
+        paymentId: payment._id.toString(),
+        transactionId: transaction.id,
+        message: "Tu banco pidió un código para la renovación. Cambia de tarjeta o vuelve a intentarlo.",
+      };
     }
 
     if (String(transaction.status) === "pending") {
@@ -456,6 +510,64 @@ export async function subscribe(
   return { charge, firstChargeAt: null, subscription: serialize(fresh) };
 }
 
+/**
+ * Termina un cobro que quedó esperando el OTP del banco. Si el código es
+ * incorrecto se puede reintentar; si el banco rechaza, la suscripción se cancela
+ * como cualquier primer cobro fallido.
+ */
+export async function verifyChargeOtp(
+  userId: string,
+  paymentId: string,
+  otp: string,
+  options: { accessEmail?: boolean } = {},
+): Promise<ChargeResult> {
+  assertSubscriptionsEnabled();
+  const payment = await Payment.findOne({ _id: paymentId, user: userId, gateway: "nuvei", source: "subscription" });
+  if (!payment?.nuveiTransactionId) throw new CustomError("Pago no encontrado", 404);
+  if (payment.status === "approved") {
+    return { status: "approved", paymentId, transactionId: payment.nuveiTransactionId };
+  }
+  if (payment.status !== "pending") throw new CustomError("Este pago ya no está esperando un código", 409);
+
+  const result = await verifyTransaction({
+    userId,
+    transactionId: payment.nuveiTransactionId,
+    type: "BY_OTP",
+    value: otp,
+  });
+  const detail = String(result.status_detail ?? "");
+
+  if (String(result.status) === "1" && detail === "3") {
+    // La verificación no trae el código de autorización: se lee la transacción.
+    const { transaction, card } = await getTransaction(payment.nuveiTransactionId, "cardServer");
+    const facts = {
+      transaction: { ...transaction, status: "success", status_detail: 3 },
+      card: { type: card.type ?? undefined, number: card.number ?? undefined },
+      applicationCode: findNuveiCredentials("cardServer")?.appCode ?? null,
+    };
+    if (!amountMatches(payment, transaction.amount ?? payment.amount)) {
+      throw new CustomError("El monto confirmado por el banco no coincide", 409);
+    }
+    await finalizeApprovedCharge(payment._id, payment.clientTransactionId, facts, {
+      initial: true,
+      accessEmail: options.accessEmail,
+    });
+    return { status: "approved", paymentId, transactionId: payment.nuveiTransactionId };
+  }
+
+  // 31 = sigue esperando, 33 = OTP no validado: se puede volver a intentar.
+  if (detail === "31" || detail === "33" || String(result.status) === "0") {
+    throw new CustomError(result.message || "El código no es correcto. Revísalo e intenta de nuevo.", 400);
+  }
+
+  payment.status = "failed";
+  payment.nuveiStatusDetail = Number(detail) || null;
+  await payment.save();
+  const sub = payment.subscription ? await Subscription.findById(payment.subscription) : null;
+  if (sub) await registerFailedCharge(sub, result.message || `OTP rechazado (detalle ${detail})`, true);
+  return { status: "failed", paymentId, message: "El banco rechazó el pago. Prueba con otra tarjeta." };
+}
+
 export async function getMySubscription(userId: string) {
   return serialize(await Subscription.findOne({ user: userId }).sort({ createdAt: -1 }));
 }
@@ -502,6 +614,19 @@ export async function chargeDueSubscriptions(options: { dryRun?: boolean; limit?
 
   const results: Array<{ id: string } & ChargeResult> = [];
   for (const sub of due) {
+    // Primer cobro que quedó esperando el OTP y la alumna nunca confirmó: no se
+    // le cobra por su cuenta; se cancela y puede volver a suscribirse.
+    const abandonedOtp =
+      !sub.lastChargeAt && (await Payment.exists({ subscription: sub._id, status: "pending" }));
+    if (abandonedOtp) {
+      await Subscription.updateOne(
+        { _id: sub._id },
+        { $set: { status: "canceled", canceledAt: new Date(), cancelReason: "initial_otp_abandoned" } },
+      );
+      await Payment.updateMany({ subscription: sub._id, status: "pending" }, { $set: { status: "canceled" } });
+      results.push({ id: sub._id.toString(), status: "failed", message: "OTP inicial no confirmado" });
+      continue;
+    }
     try {
       results.push({ id: sub._id.toString(), ...(await chargeSubscription(sub._id.toString())) });
     } catch (err) {

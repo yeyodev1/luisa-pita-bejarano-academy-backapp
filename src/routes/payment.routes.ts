@@ -34,6 +34,7 @@ router.get("/nuvei/subscription/config", authMiddleware, nuveiController.checkou
 router.get("/nuvei/subscription", authMiddleware, nuveiController.mySubscription);
 router.post("/nuvei/subscription", authMiddleware, nuveiController.subscribe);
 router.post("/nuvei/card/verify", authMiddleware, nuveiController.verifyCard);
+router.post("/nuvei/subscription/verify-otp", authMiddleware, nuveiController.verifyChargeOtp);
 router.get("/nuvei/cards", authMiddleware, nuveiController.listCards);
 router.post("/nuvei/cards", authMiddleware, nuveiController.saveCard);
 router.post("/nuvei/cards/:token/default", authMiddleware, nuveiController.setDefaultCard);
@@ -43,6 +44,7 @@ router.delete("/nuvei/cards/:token", authMiddleware, nuveiController.removeCard)
 router.post("/nuvei/checkout/start", nuveiController.checkoutStart);
 router.post("/nuvei/checkout/card/verify", nuveiController.checkoutVerifyCard);
 router.post("/nuvei/checkout/complete", nuveiController.checkoutComplete);
+router.post("/nuvei/checkout/charge/verify", nuveiController.checkoutVerifyChargeOtp);
 router.post("/nuvei/checkout/resend-access", nuveiController.checkoutResendAccess);
 
 export default router;

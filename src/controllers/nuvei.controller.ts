@@ -187,6 +187,34 @@ export async function checkoutComplete(req: Request, res: Response, next: NextFu
   }
 }
 
+export async function checkoutVerifyChargeOtp(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { checkoutToken, paymentId, otp } = req.body ?? {};
+    const result = await checkoutService.verifyCheckoutChargeOtp(
+      requireString(checkoutToken, "checkoutToken"),
+      requireString(paymentId, "paymentId"),
+      requireString(otp, "otp"),
+    );
+    successResponse(res, result, "Pago verificado");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyChargeOtp(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const { paymentId, otp } = req.body ?? {};
+    const charge = await subscriptionService.verifyChargeOtp(
+      userIdOf(req),
+      requireString(paymentId, "paymentId"),
+      requireString(otp, "otp"),
+    );
+    successResponse(res, { charge, subscription: await subscriptionService.getMySubscription(userIdOf(req)) }, "Pago verificado");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function checkoutResendAccess(req: Request, res: Response, next: NextFunction) {
   try {
     const result = await checkoutService.resendAccessEmail(requireString(req.body?.email, "email"));

@@ -8,7 +8,13 @@ import { generateResetToken } from "../helpers/token.helper";
 import { sendCheckoutAccessEmail, sendCheckoutWelcomeEmail } from "../helpers/email.helper";
 import { PAYMENT_PLANS } from "../config/paymentPlans";
 import { areSubscriptionsEnabled, findNuveiCredentials, nuveiEnvironment } from "../config/nuvei";
-import { SUBSCRIPTION_PLAN, saveCard, subscribe, verifyCardOtp } from "./nuveiSubscription.service";
+import {
+  SUBSCRIPTION_PLAN,
+  saveCard,
+  subscribe,
+  verifyCardOtp,
+  verifyChargeOtp,
+} from "./nuveiSubscription.service";
 
 /**
  * Suscripción sin iniciar sesión. La alumna deja nombre y correo, ingresa la
@@ -131,6 +137,15 @@ export async function completeCheckout(checkoutToken: string, cardToken: string,
   await saveCard(userId, cardToken, true, ip);
   const result = await subscribe(userId, cardToken, ip, { accessEmail: false });
 
+  if (result.charge?.status === "otp_required") {
+    // El acceso se envía recién cuando el banco confirme con el código.
+    return {
+      status: "otp_required" as const,
+      paymentId: result.charge.paymentId,
+      message: result.charge.message,
+    };
+  }
+
   if (result.charge && result.charge.status !== "approved" && result.charge.status !== "pending") {
     return { status: "failed" as const, message: result.charge.message ?? "La tarjeta fue rechazada." };
   }
@@ -146,6 +161,20 @@ export async function completeCheckout(checkoutToken: string, cardToken: string,
     firstChargeAt: result.firstChargeAt,
     message: result.charge?.message,
   };
+}
+
+/** Termina un pago del checkout que quedó esperando el código (OTP) del banco. */
+export async function verifyCheckoutChargeOtp(checkoutToken: string, paymentId: string, otp: string) {
+  const { userId } = readCheckoutToken(checkoutToken);
+  const charge = await verifyChargeOtp(userId, paymentId, otp, { accessEmail: false });
+  if (charge.status !== "approved") {
+    return { status: "failed" as const, message: charge.message ?? "El banco rechazó el pago." };
+  }
+  const user = await User.findById(userId);
+  if (user) {
+    await sendAccessEmail(user).catch((err) => console.error("[Checkout] Failed to send access email:", err));
+  }
+  return { status: "approved" as const, email: user?.email, firstChargeAt: null };
 }
 
 /**

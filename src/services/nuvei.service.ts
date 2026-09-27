@@ -9,6 +9,7 @@ import {
   isValidStoken,
 } from "../config/nuvei";
 import { refundTransaction } from "./nuveiCard.service";
+import { sendRefundEmail } from "../helpers/email.helper";
 import {
   amountMatches,
   approvePayment,
@@ -220,6 +221,17 @@ export async function refundNuveiPayment(paymentId: string) {
 
   // "pending" = Nuvei espera confirmación del banco; igual se quita el acceso.
   await reversePayment(payment, "refunded", `${result.status}: ${result.detail}`);
+
+  const customer = await User.findById(payment.user);
+  if (customer) {
+    await sendRefundEmail(
+      customer.email,
+      customer.name,
+      payment.amount,
+      payment.nuveiTransactionId,
+      result.status === "pending",
+    ).catch((err) => console.error("[Nuvei] Failed to send refund email:", err));
+  }
 
   if (payment.subscription) {
     await Subscription.updateOne(

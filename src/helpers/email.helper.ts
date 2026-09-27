@@ -506,3 +506,26 @@ export async function sendCheckoutAccessEmail(
     `,
   });
 }
+
+/** Aviso al cliente de un reembolso hecho desde el admin. */
+export async function sendRefundEmail(
+  to: string,
+  name: string,
+  amount: number,
+  transactionId: string,
+  pending: boolean,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Procesamos tu reembolso — Luisa Pita Bejarano Academy",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>${pending ? "Solicitamos" : "Realizamos"} el reembolso de <strong>USD ${amount.toFixed(2)}</strong> a tu tarjeta.</p>
+        <p style="font-size: 14px; color: #666;">ID de transacción: <strong>${escapeHtml(transactionId)}</strong></p>
+        <p style="font-size: 14px; color: #666;">Según tu banco, el valor puede tardar algunos días hábiles en verse reflejado en tu estado de cuenta.</p>
+      </div>
+    `,
+  });
+}
