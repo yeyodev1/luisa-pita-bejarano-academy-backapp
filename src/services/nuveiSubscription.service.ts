@@ -43,6 +43,25 @@ import {
  */
 
 export const SUBSCRIPTION_PLAN: PaymentPlan = "monthly";
+
+/**
+ * Plan de prueba: los correos de NUVEI_TEST_EMAILS (separados por coma) pagan
+ * USD 1 al mes en vez del precio real, para probar cobros reales en producción
+ * sin gastar USD 47. No existe como plan público.
+ */
+export const TEST_PLAN_AMOUNT = 1;
+
+export function isTestPlanEmail(email: string) {
+  const allowed = (process.env.NUVEI_TEST_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(email.trim().toLowerCase());
+}
+
+export function subscriptionAmountFor(email: string) {
+  return isTestPlanEmail(email) ? TEST_PLAN_AMOUNT : PAYMENT_PLANS[SUBSCRIPTION_PLAN].amount;
+}
 export const MAX_FAILED_ATTEMPTS = 3;
 const RETRY_AFTER_DAYS = 2;
 const PENDING_RECHECK_HOURS = 24;
@@ -97,7 +116,7 @@ export async function getCheckoutConfig(userId: string) {
   return {
     enabled,
     plan: SUBSCRIPTION_PLAN,
-    amount: PAYMENT_PLANS[SUBSCRIPTION_PLAN].amount,
+    amount: subscriptionAmountFor(user.email),
     environment: nuveiEnvironment(),
     appCode: enabled ? client?.appCode ?? null : null,
     appKey: enabled ? client?.appKey ?? null : null,
@@ -460,16 +479,16 @@ export async function subscribe(
     throw new CustomError("Debes aceptar los Términos y condiciones para suscribirte.", 400);
   }
   const plan = SUBSCRIPTION_PLAN;
-  const { amount } = PAYMENT_PLANS[plan];
-  if (amount > NUVEI_MAX_AMOUNT) {
-    throw new CustomError(`El plan excede el límite de $${NUVEI_MAX_AMOUNT} autorizado por Nuvei`, 400);
-  }
   if (await currentSubscription(userId)) {
     throw new CustomError("Ya tienes una suscripción activa. Cancélala antes de cambiar de plan.", 409);
   }
 
   const user = await User.findById(userId);
   if (!user) throw new CustomError("Usuario no encontrado", 404);
+  const amount = subscriptionAmountFor(user.email);
+  if (amount > NUVEI_MAX_AMOUNT) {
+    throw new CustomError(`El plan excede el límite de $${NUVEI_MAX_AMOUNT} autorizado por Nuvei`, 400);
+  }
   if (user.subscriptionStatus === "active" && !user.accessUntil) {
     throw new CustomError("Tu acceso no tiene fecha de vencimiento; no necesitas una suscripción.", 409);
   }

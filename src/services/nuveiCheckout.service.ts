@@ -6,11 +6,10 @@ import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
 import { generateResetToken } from "../helpers/token.helper";
 import { sendCheckoutAccessEmail, sendCheckoutWelcomeEmail } from "../helpers/email.helper";
-import { PAYMENT_PLANS } from "../config/paymentPlans";
 import { areSubscriptionsEnabled, findNuveiCredentials, nuveiEnvironment } from "../config/nuvei";
 import {
-  SUBSCRIPTION_PLAN,
   saveCard,
+  subscriptionAmountFor,
   subscribe,
   verifyCardOtp,
   verifyChargeOtp,
@@ -98,7 +97,7 @@ export async function startCheckout(input: { name: string; lastName: string; ema
     appCode: client?.appCode ?? null,
     appKey: client?.appKey ?? null,
     user: { id: user._id.toString(), email: user.email },
-    amount: PAYMENT_PLANS[SUBSCRIPTION_PLAN].amount,
+    amount: subscriptionAmountFor(user.email),
   };
 }
 
