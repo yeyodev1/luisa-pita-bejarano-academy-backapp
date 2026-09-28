@@ -7,6 +7,13 @@ import { generateVerificationToken } from "../helpers/token.helper";
 import { LessonProgress } from "../models/LessonProgress";
 import { LessonComment } from "../models/LessonComment";
 import { UserAchievement } from "../models/UserAchievement";
+import { Payment } from "../models/Payment";
+import { Subscription } from "../models/Subscription";
+import { PhysicalAssessment } from "../models/PhysicalAssessment";
+import { EventReminderDelivery } from "../models/EventReminderDelivery";
+import { LaunchReminder } from "../models/LaunchReminder";
+import { deleteCard, listCards } from "./nuveiCard.service";
+import { areSubscriptionsEnabled } from "../config/nuvei";
 import { addMonths, grantAccessMonths } from "../helpers/access.helper";
 import {
   sendAdminInviteEmail,
@@ -143,15 +150,32 @@ export async function deleteUser(id: string) {
     throw new CustomError("User not found", 404);
   }
 
+  // Tarjetas guardadas en Nuvei: se borran para que no quede ningún token.
+  let cardsDeleted = 0;
+  if (areSubscriptionsEnabled()) {
+    const cards = await listCards(id).catch(() => []);
+    for (const card of cards) {
+      if (!card.token) continue;
+      await deleteCard(id, card.token)
+        .then(() => cardsDeleted++)
+        .catch((err) => console.error("[Admin] Nuvei card delete failed:", err));
+    }
+  }
+
   await Promise.all([
     ManualPayment.deleteMany({ user: id }),
     LessonProgress.deleteMany({ user: id }),
     LessonComment.deleteMany({ user: id }),
     UserAchievement.deleteMany({ user: id }),
+    Payment.deleteMany({ user: id }),
+    Subscription.deleteMany({ user: id }),
+    PhysicalAssessment.deleteMany({ user: id }),
+    EventReminderDelivery.deleteMany({ user: id }),
+    LaunchReminder.deleteMany({ user: id }),
   ]);
   await User.findByIdAndDelete(id);
 
-  return { deleted: true };
+  return { deleted: true, cardsDeleted };
 }
 
 export async function extendAccess(id: string, months: number) {
