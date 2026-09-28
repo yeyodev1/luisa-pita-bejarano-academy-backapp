@@ -351,7 +351,7 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
       <td style="padding: 8px 0; text-align: right; font-size: 14px;"><strong>${value}</strong></td>
     </tr>`;
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to: input.to,
     subject: `Comprobante de pago — ${plan.label}`,
@@ -380,6 +380,7 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
       </div>
     `,
   });
+  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 export async function sendSubscriptionChargeFailedEmail(
@@ -440,7 +441,7 @@ export async function sendSubscriptionScheduledEmail(
   cardLabel: string | null,
   paymentsUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to,
     subject: "Tu tarjeta quedó registrada — hoy no se cobró nada",
@@ -457,6 +458,7 @@ export async function sendSubscriptionScheduledEmail(
       </div>
     `,
   });
+  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /**
@@ -468,7 +470,7 @@ export async function sendCheckoutWelcomeEmail(
   name: string,
   setPasswordUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to,
     subject: "Tu acceso a Luisa Pita Bejarano Academy — crea tu contraseña",
@@ -484,6 +486,7 @@ export async function sendCheckoutWelcomeEmail(
       </div>
     `,
   });
+  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /** Acceso tras suscribirse sin iniciar sesión, para quien ya tenía cuenta. */
@@ -493,7 +496,7 @@ export async function sendCheckoutAccessEmail(
   loginUrl: string,
   forgotUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to,
     subject: "Tu suscripción a Luisa Pita Bejarano Academy está activa",
@@ -506,6 +509,7 @@ export async function sendCheckoutAccessEmail(
       </div>
     `,
   });
+  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /** Aviso al cliente de un reembolso hecho desde el admin (total o parcial). */

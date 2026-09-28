@@ -300,6 +300,19 @@ async function sendRefundEmailFor(payment: IPayment, pending = false) {
   return true;
 }
 
+/** Reenvío manual del comprobante de pago (transaction_id + autorización). */
+export async function resendReceipt(paymentId: string) {
+  const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
+  if (!payment) throw new CustomError("Pago no encontrado", 404);
+  if (payment.status !== "approved") throw new CustomError("Solo se reenvía el comprobante de pagos aprobados", 409);
+  await Payment.updateOne({ _id: payment._id }, { $set: { receiptSentAt: null } });
+  await sendReceiptOnce(payment._id);
+  const after = await Payment.findById(payment._id).select("receiptSentAt");
+  if (!after?.receiptSentAt) throw new CustomError("No se pudo enviar el comprobante. Revisa Resend.", 502);
+  const customer = await User.findById(payment.user).select("email");
+  return { sentTo: customer?.email };
+}
+
 /** Reenvío manual del correo de reembolso desde el admin. */
 export async function resendRefundEmail(paymentId: string) {
   const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
