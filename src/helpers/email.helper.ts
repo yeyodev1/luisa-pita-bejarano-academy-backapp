@@ -284,3 +284,256 @@ export async function sendManualPaymentReceiptEmail(
     `,
   });
 }
+
+function formatEmailDate(date: Date) {
+  return date.toLocaleDateString("es-EC", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "America/Guayaquil",
+  });
+}
+
+function formatEmailDateTime(date: Date) {
+  return date.toLocaleString("es-EC", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Guayaquil",
+  });
+}
+
+/** Nuvei devuelve la marca abreviada (vi, mc, ax, di…). */
+const CARD_BRANDS: Record<string, string> = {
+  vi: "Visa",
+  mc: "Mastercard",
+  ax: "American Express",
+  di: "Diners",
+  dc: "Diners",
+  dn: "Discover",
+};
+
+export function cardBrandLabel(brand: string | null | undefined) {
+  if (!brand) return "Tarjeta";
+  return CARD_BRANDS[brand.toLowerCase()] ?? brand.toUpperCase();
+}
+
+export interface NuveiReceiptEmailInput {
+  to: string;
+  name: string;
+  plan: PaymentPlan;
+  amount: number;
+  vat: number;
+  transactionId: string;
+  authorizationCode: string | null;
+  paidAt: Date;
+  cardBrand?: string | null;
+  cardLast4?: string | null;
+  accessUntil?: Date | null;
+  /** Si es una suscripción, la fecha del próximo cobro. */
+  nextChargeAt?: Date | null;
+}
+
+/**
+ * Comprobante de pago con tarjeta. Nuvei lo exige como requisito bancario:
+ * detalle de la compra, transaction_id y authorization_code.
+ */
+export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Promise<void> {
+  const plan = PAYMENT_PLANS[input.plan];
+  const name = escapeHtml(input.name);
+  const card =
+    input.cardLast4 ? `${escapeHtml(cardBrandLabel(input.cardBrand))} •••• ${escapeHtml(input.cardLast4)}` : null;
+  const row = (label: string, value: string) => `
+    <tr>
+      <td style="padding: 8px 0; color: #666; font-size: 14px;">${label}</td>
+      <td style="padding: 8px 0; text-align: right; font-size: 14px;"><strong>${value}</strong></td>
+    </tr>`;
+
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to: input.to,
+    subject: `Comprobante de pago — ${plan.label}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${name}</h2>
+        <p>Recibimos tu pago. Este es el detalle de tu compra en <strong>Luisa Pita Bejarano Academy</strong>:</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee;">
+          ${row("Producto", escapeHtml(plan.reference))}
+          ${row("Subtotal", `USD ${(input.amount - input.vat).toFixed(2)}`)}
+          ${row("IVA 15%", `USD ${input.vat.toFixed(2)}`)}
+          ${row("Total pagado", `USD ${input.amount.toFixed(2)}`)}
+          ${row("Fecha", formatEmailDateTime(input.paidAt))}
+          ${card ? row("Tarjeta", card) : ""}
+          ${row("ID de transacción", escapeHtml(input.transactionId))}
+          ${row("Número de autorización", escapeHtml(input.authorizationCode || "—"))}
+        </table>
+        ${input.accessUntil ? `<p>Tu acceso está activo hasta el <strong>${formatEmailDate(input.accessUntil)}</strong>.</p>` : ""}
+        ${
+          input.nextChargeAt
+            ? `<p>Tu suscripción se renovará automáticamente el <strong>${formatEmailDate(input.nextChargeAt)}</strong>. Puedes cancelarla cuando quieras desde la sección Pagos de tu cuenta.</p>`
+            : ""
+        }
+        <p style="font-size: 13px; color: #666;"><strong>Política de reembolso:</strong> solo puedes pedir un reembolso dentro de los 2 primeros días desde que adquiriste tu suscripción, por hasta el 30% del monto pagado. Después no hay reembolsos. <a href="${process.env.FRONTEND_URL}/terminos-y-condiciones#reembolsos">Ver términos y condiciones</a>.</p>
+        <p style="font-size: 12px; color: #999; margin-top: 24px;">Guarda este correo como comprobante. Si no reconoces este cargo, responde a este correo o contacta a soporte.</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendSubscriptionChargeFailedEmail(
+  to: string,
+  name: string,
+  plan: PaymentPlan,
+  retryAt: Date | null,
+  paymentsUrl: string,
+): Promise<void> {
+  const label = PAYMENT_PLANS[plan].label;
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "No pudimos renovar tu suscripción",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Intentamos cobrar la renovación de tu <strong>${escapeHtml(label)}</strong> y la tarjeta fue rechazada.</p>
+        ${
+          retryAt
+            ? `<p>Volveremos a intentarlo el <strong>${formatEmailDate(retryAt)}</strong>. Si quieres, puedes actualizar tu tarjeta antes desde tu cuenta.</p>`
+            : `<p>Después de varios intentos, tu suscripción quedó cancelada. Puedes volver a suscribirte cuando quieras.</p>`
+        }
+        <a href="${paymentsUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Ir a mis pagos</a>
+      </div>
+    `,
+  });
+}
+
+export async function sendSubscriptionCanceledEmail(
+  to: string,
+  name: string,
+  accessUntil: Date | null,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu suscripción fue cancelada",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Cancelamos la renovación automática de tu suscripción. No se harán más cobros a tu tarjeta.</p>
+        ${accessUntil && accessUntil > new Date() ? `<p>Conservas tu acceso hasta el <strong>${formatEmailDate(accessUntil)}</strong>.</p>` : ""}
+      </div>
+    `,
+  });
+}
+
+/**
+ * Cambio de forma de pago: la alumna registró su tarjeta teniendo acceso ya
+ * pagado. Se le confirma que hoy no se cobró nada y cuándo será el primer cobro.
+ */
+export async function sendSubscriptionScheduledEmail(
+  to: string,
+  name: string,
+  amount: number,
+  firstChargeAt: Date,
+  cardLabel: string | null,
+  paymentsUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu tarjeta quedó registrada — hoy no se cobró nada",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Gracias por actualizar tu forma de pago. Tu suscripción mensual quedó activa${cardLabel ? ` con la tarjeta <strong>${escapeHtml(cardLabel)}</strong>` : ""}.</p>
+        <div style="margin: 16px 0; padding: 16px; background: #f0fff8; border: 1px solid #16c784; border-radius: 8px;">
+          <strong>Hoy no se realizó ningún cobro.</strong><br />
+          Tu acceso actual sigue vigente y el primer cobro de USD ${amount.toFixed(2)} será el <strong>${formatEmailDate(firstChargeAt)}</strong>. Después se renovará cada mes.
+        </div>
+        <p>Puedes cambiar tu tarjeta o cancelar la renovación cuando quieras desde tu cuenta.</p>
+        <a href="${paymentsUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Ver mis pagos</a>
+      </div>
+    `,
+  });
+}
+
+/**
+ * Acceso tras suscribirse sin cuenta: la alumna nueva crea su contraseña con
+ * un enlace (no se envían contraseñas por correo).
+ */
+export async function sendCheckoutWelcomeEmail(
+  to: string,
+  name: string,
+  setPasswordUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu acceso a Luisa Pita Bejarano Academy — crea tu contraseña",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">¡Bienvenida, ${escapeHtml(name)}!</h2>
+        <p>Tu suscripción a <strong>Luisa Pita Bejarano Academy</strong> está activa.</p>
+        <p>Para entrar, crea tu contraseña con este botón:</p>
+        <a href="${setPasswordUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Crear mi contraseña</a>
+        <p style="font-size: 14px; color: #666;">O copia y pega este enlace:</p>
+        <p style="font-size: 14px; word-break: break-all;">${setPasswordUrl}</p>
+        <p style="font-size: 14px; color: #666;">Tu usuario es <strong>${escapeHtml(to)}</strong>. El enlace es válido por 7 días; si vence, usa "¿Olvidaste tu contraseña?" en la pantalla de ingreso.</p>
+      </div>
+    `,
+  });
+}
+
+/** Acceso tras suscribirse sin iniciar sesión, para quien ya tenía cuenta. */
+export async function sendCheckoutAccessEmail(
+  to: string,
+  name: string,
+  loginUrl: string,
+  forgotUrl: string,
+): Promise<void> {
+  await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Tu suscripción a Luisa Pita Bejarano Academy está activa",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>Tu suscripción mensual está activa. Entra con tu correo <strong>${escapeHtml(to)}</strong> y tu contraseña de siempre.</p>
+        <a href="${loginUrl}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; background: #111; color: #fff; text-decoration: none; border-radius: 6px;">Entrar a la academia</a>
+        <p style="font-size: 14px; color: #666;">¿No recuerdas tu contraseña? <a href="${forgotUrl}">Créala de nuevo aquí</a>.</p>
+      </div>
+    `,
+  });
+}
+
+/** Aviso al cliente de un reembolso hecho desde el admin (total o parcial). */
+export async function sendRefundEmail(
+  to: string,
+  name: string,
+  input: { refundedAmount: number; paidAmount: number; transactionId: string; pending: boolean },
+): Promise<void> {
+  const partial = input.refundedAmount < input.paidAmount;
+  const percent = Math.round((input.refundedAmount / input.paidAmount) * 100);
+  const { error } = await resend.emails.send({
+    from: process.env.RESEND_FROM_EMAIL as string,
+    to,
+    subject: "Procesamos tu reembolso — Luisa Pita Bejarano Academy",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
+        <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
+        <p>${input.pending ? "Solicitamos" : "Realizamos"} el reembolso de <strong>USD ${input.refundedAmount.toFixed(2)}</strong> a tu tarjeta${
+          partial
+            ? `, que corresponde al ${percent}% de tu pago de USD ${input.paidAmount.toFixed(2)}, según nuestra política de reembolso`
+            : ""
+        }.</p>
+        <p>Tu suscripción quedó cancelada y no se harán más cobros a tu tarjeta.</p>
+        <p style="font-size: 14px; color: #666;">ID de transacción: <strong>${escapeHtml(input.transactionId)}</strong></p>
+        <p style="font-size: 14px; color: #666;">Según tu banco, el valor puede tardar algunos días hábiles en verse reflejado en tu estado de cuenta.</p>
+        <p style="font-size: 13px; color: #666;"><a href="${process.env.FRONTEND_URL}/terminos-y-condiciones#reembolsos">Ver política de reembolso</a></p>
+      </div>
+    `,
+  });
+  if (error) throw new Error(`Resend: ${error.message}`);
+}

@@ -7,6 +7,7 @@ import * as manualPaymentController from "../controllers/manualPayment.controlle
 import * as academyController from "../controllers/adminAcademy.controller";
 import * as assetController from "../controllers/cloudinaryAsset.controller";
 import * as bunnyController from "../controllers/bunnyStream.controller";
+import * as nuveiController from "../controllers/nuvei.controller";
 
 const router = Router();
 
@@ -25,6 +26,14 @@ router.post(
   manualPaymentController.create,
 );
 router.delete("/payments/:id", manualPaymentController.remove);
+
+router.get("/nuvei/payments", nuveiController.adminListPayments);
+router.get("/nuvei/payments/:id/refund-preview", nuveiController.adminRefundPreview);
+router.post("/nuvei/payments/:id/refund", nuveiController.adminRefund);
+router.post("/nuvei/payments/:id/refund-email", nuveiController.adminResendRefundEmail);
+router.get("/nuvei/subscriptions", nuveiController.adminListSubscriptions);
+router.post("/nuvei/subscriptions/:id/cancel", nuveiController.adminCancelSubscription);
+router.post("/nuvei/subscriptions/:id/charge", nuveiController.adminChargeNow);
 
 router.get("/courses", academyController.listCourses);
 router.post("/courses", academyController.createCourse);

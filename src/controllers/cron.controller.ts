@@ -11,6 +11,7 @@ import {
   missedClassEmailStatus as getMissedClassEmailStatus,
 } from "../services/missedClassEmail.service";
 import { fillRecordedClassGaps } from "../services/recordedClassGaps.service";
+import { chargeDueSubscriptions } from "../services/nuveiSubscription.service";
 
 export async function eventReminders(
   req: Request,
@@ -104,6 +105,24 @@ export async function recordedClassGaps(
     }
     const result = await fillRecordedClassGaps({ dryRun, to: q.to?.trim() || undefined });
     successResponse(res, result, "Recorded class gaps processed");
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Cobra las suscripciones de Nuvei que vencen hoy. Query: dryRun=1, limit. */
+export async function nuveiSubscriptions(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    assertCronAuthorization(req.header("authorization"));
+    const result = await chargeDueSubscriptions({
+      dryRun: req.query.dryRun === "1",
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    successResponse(res, result, "Nuvei subscriptions processed");
   } catch (error) {
     next(error);
   }

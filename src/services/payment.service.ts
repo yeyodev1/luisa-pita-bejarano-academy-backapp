@@ -4,6 +4,7 @@ import { Payment } from "../models/Payment";
 import { User } from "../models/User";
 import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
+import { cancelSubscriptionFor } from "./nuveiSubscription.service";
 import {
   sendPaymentAccessEmail,
   sendPaymentWelcomeEmail,
@@ -399,5 +400,12 @@ export async function cancelSubscription(userId: string) {
   user.subscriptionStatus = "canceled";
   await user.save();
 
-  return { email: user.email, subscriptionStatus: user.subscriptionStatus };
+  // Si paga con tarjeta guardada en Nuvei, además se detienen los cobros.
+  const nuveiSubscription = await cancelSubscriptionFor(userId, "user");
+
+  return {
+    email: user.email,
+    subscriptionStatus: user.subscriptionStatus,
+    nuveiSubscription,
+  };
 }

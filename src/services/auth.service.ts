@@ -246,6 +246,7 @@ export async function resetPassword(token: string, newPassword: string) {
   user.password = await hashPassword(newPassword);
   user.resetToken = null;
   user.resetTokenExpires = null;
+  user.passwordPending = false;
   await user.save();
 
   sendPasswordResetConfirmationEmail(user.email, user.name).catch((err) => {

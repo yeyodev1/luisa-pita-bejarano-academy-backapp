@@ -44,6 +44,10 @@
     {
       "path": "/api/cron/event-reminders/cafecito-now",
       "schedule": "0 21 * * 1"
+    },
+    {
+      "path": "/api/cron/nuvei-subscriptions",
+      "schedule": "0 14 * * *"
     }
   ]
 }
