@@ -263,15 +263,10 @@ export async function refundNuveiPayment(paymentId: string, requestedAmount?: nu
   // "pending" = Nuvei espera confirmación del banco; igual se quita el acceso.
   await reversePayment(payment, "refunded", `${result.status}: ${result.detail}`, amount);
 
-  const customer = await User.findById(payment.user);
-  if (customer) {
-    await sendRefundEmail(customer.email, customer.name, {
-      refundedAmount: amount,
-      paidAmount: payment.amount,
-      transactionId: payment.nuveiTransactionId,
-      pending: result.status === "pending",
-    }).catch((err) => console.error("[Nuvei] Failed to send refund email:", err));
-  }
+  const emailSent = await sendRefundEmailFor(payment, result.status === "pending").catch((err) => {
+    console.error("[Nuvei] Failed to send refund email:", err);
+    return false;
+  });
 
   if (payment.subscription) {
     await Subscription.updateOne(
@@ -288,5 +283,34 @@ export async function refundNuveiPayment(paymentId: string, requestedAmount?: nu
     withinPolicy: policy.withinWindow,
     refundStatus: result.status,
     detail: result.detail,
+    emailSent,
   };
+}
+
+/** Correo de reembolso a la alumna. Lanza si Resend lo rechaza. */
+async function sendRefundEmailFor(payment: IPayment, pending = false) {
+  const customer = await User.findById(payment.user);
+  if (!customer || !payment.nuveiTransactionId) return false;
+  await sendRefundEmail(customer.email, customer.name, {
+    refundedAmount: payment.refundedAmount ?? payment.amount,
+    paidAmount: payment.amount,
+    transactionId: payment.nuveiTransactionId,
+    pending,
+  });
+  return true;
+}
+
+/** Reenvío manual del correo de reembolso desde el admin. */
+export async function resendRefundEmail(paymentId: string) {
+  const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
+  if (!payment) throw new CustomError("Pago no encontrado", 404);
+  if (payment.status !== "refunded") throw new CustomError("Este pago no está reembolsado", 409);
+  const customer = await User.findById(payment.user);
+  if (!customer) throw new CustomError("La alumna ya no existe", 404);
+  try {
+    await sendRefundEmailFor(payment);
+  } catch (err) {
+    throw new CustomError(`No se pudo enviar el correo: ${(err as Error).message}`, 502);
+  }
+  return { sentTo: customer.email };
 }

@@ -516,7 +516,7 @@ export async function sendRefundEmail(
 ): Promise<void> {
   const partial = input.refundedAmount < input.paidAmount;
   const percent = Math.round((input.refundedAmount / input.paidAmount) * 100);
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to,
     subject: "Procesamos tu reembolso — Luisa Pita Bejarano Academy",
@@ -535,4 +535,5 @@ export async function sendRefundEmail(
       </div>
     `,
   });
+  if (error) throw new Error(`Resend: ${error.message}`);
 }

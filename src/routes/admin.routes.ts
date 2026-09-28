@@ -30,6 +30,7 @@ router.delete("/payments/:id", manualPaymentController.remove);
 router.get("/nuvei/payments", nuveiController.adminListPayments);
 router.get("/nuvei/payments/:id/refund-preview", nuveiController.adminRefundPreview);
 router.post("/nuvei/payments/:id/refund", nuveiController.adminRefund);
+router.post("/nuvei/payments/:id/refund-email", nuveiController.adminResendRefundEmail);
 router.get("/nuvei/subscriptions", nuveiController.adminListSubscriptions);
 router.post("/nuvei/subscriptions/:id/cancel", nuveiController.adminCancelSubscription);
 router.post("/nuvei/subscriptions/:id/charge", nuveiController.adminChargeNow);

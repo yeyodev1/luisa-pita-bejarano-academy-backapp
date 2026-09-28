@@ -257,6 +257,14 @@ export async function adminRefund(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export async function adminResendRefundEmail(req: Request, res: Response, next: NextFunction) {
+  try {
+    successResponse(res, await service.resendRefundEmail(requireString(req.params.id, "id")), "Correo de reembolso enviado");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function adminRefundPreview(req: Request, res: Response, next: NextFunction) {
   try {
     successResponse(res, await service.getRefundPreview(requireString(req.params.id, "id")), "Política de reembolso");
