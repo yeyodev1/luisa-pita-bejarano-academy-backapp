@@ -28,6 +28,8 @@ export interface IPayment extends Document {
   receiptSentAt: Date | null;
   refundedAt: Date | null;
   refundDetail: string | null;
+  /** Monto devuelto (puede ser parcial, p. ej. el 30% de la política). */
+  refundedAmount: number | null;
   isNewUser: boolean;
   plainPassword: string | null;
   createdAt: Date;
@@ -67,6 +69,7 @@ const paymentSchema = new Schema<IPayment>(
     receiptSentAt: { type: Date, default: null },
     refundedAt: { type: Date, default: null },
     refundDetail: { type: String, default: null },
+    refundedAmount: { type: Number, default: null },
     isNewUser: { type: Boolean, default: false },
     plainPassword: { type: String, default: null },
   },

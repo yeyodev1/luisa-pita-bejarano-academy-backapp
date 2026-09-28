@@ -1,4 +1,4 @@
-import { Payment } from "../models/Payment";
+import { Payment, IPayment } from "../models/Payment";
 import { User } from "../models/User";
 import { Subscription } from "../models/Subscription";
 import { CustomError } from "../errors/customError.error";
@@ -192,16 +192,47 @@ export async function listNuveiPayments(filters: { search?: string; status?: str
     devReference: p.clientTransactionId,
     refundedAt: p.refundedAt,
     refundDetail: p.refundDetail,
+    refundedAmount: p.refundedAmount,
     receiptSentAt: p.receiptSentAt,
     createdAt: p.createdAt,
   }));
 }
 
 /**
- * Reembolso total desde el admin. Requisito bancario de Nuvei. Quita el acceso
- * que dio el pago y, si era de una suscripción, la cancela.
+ * Política de reembolso de los Términos (2 primeros días, hasta 30%). Solo es
+ * informativa para el admin: la decisión de reembolsar el total es suya.
  */
-export async function refundNuveiPayment(paymentId: string) {
+export const REFUND_WINDOW_HOURS = 48;
+export const REFUND_POLICY_PERCENT = 30;
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+async function refundPolicyFor(payment: IPayment) {
+  const sub = payment.subscription ? await Subscription.findById(payment.subscription).select("createdAt") : null;
+  const acquiredAt = sub?.createdAt ?? payment.createdAt;
+  const deadline = new Date(acquiredAt.getTime() + REFUND_WINDOW_HOURS * 3600 * 1000);
+  return {
+    acquiredAt,
+    deadline,
+    withinWindow: Date.now() <= deadline.getTime(),
+    policyAmount: round2((payment.amount * REFUND_POLICY_PERCENT) / 100),
+  };
+}
+
+export async function getRefundPreview(paymentId: string) {
+  const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
+  if (!payment) throw new CustomError("Pago no encontrado", 404);
+  return { amount: payment.amount, policyPercent: REFUND_POLICY_PERCENT, ...(await refundPolicyFor(payment)) };
+}
+
+/**
+ * Reembolso desde el admin (requisito bancario de Nuvei). Devuelve el total del
+ * pago; el monto parcial queda disponible por API pero la UI no lo usa.
+ * Quita el acceso de ese pago, cancela la suscripción y avisa a la alumna.
+ */
+export async function refundNuveiPayment(paymentId: string, requestedAmount?: number) {
   assertEnabled();
   const payment = await Payment.findOne({ _id: paymentId, gateway: "nuvei" });
   if (!payment) throw new CustomError("Pago no encontrado", 404);
@@ -210,27 +241,36 @@ export async function refundNuveiPayment(paymentId: string) {
     throw new CustomError("Solo se pueden reembolsar pagos aprobados", 409);
   }
 
+  const policy = await refundPolicyFor(payment);
+  const amount = round2(requestedAmount ?? payment.amount);
+  if (!(amount > 0) || amount > payment.amount) {
+    throw new CustomError(`El monto a devolver debe estar entre 0.01 y ${payment.amount}`, 400);
+  }
+  const partial = amount < payment.amount;
+
   const kind =
     credentialKindForAppCode(payment.nuveiApplicationCode) ??
     (payment.source === "subscription" ? "cardServer" : "ltp");
 
-  const result = await refundTransaction(payment.nuveiTransactionId, kind);
+  const result = await refundTransaction(payment.nuveiTransactionId, kind, partial ? amount : undefined);
   if (result.status === "failure") {
-    throw new CustomError(`Nuvei rechazó el reembolso: ${result.detail || "sin detalle"}`, 409);
+    throw new CustomError(
+      `Nuvei rechazó el reembolso${partial ? " parcial" : ""}: ${result.detail || "sin detalle"}`,
+      409,
+    );
   }
 
   // "pending" = Nuvei espera confirmación del banco; igual se quita el acceso.
-  await reversePayment(payment, "refunded", `${result.status}: ${result.detail}`);
+  await reversePayment(payment, "refunded", `${result.status}: ${result.detail}`, amount);
 
   const customer = await User.findById(payment.user);
   if (customer) {
-    await sendRefundEmail(
-      customer.email,
-      customer.name,
-      payment.amount,
-      payment.nuveiTransactionId,
-      result.status === "pending",
-    ).catch((err) => console.error("[Nuvei] Failed to send refund email:", err));
+    await sendRefundEmail(customer.email, customer.name, {
+      refundedAmount: amount,
+      paidAmount: payment.amount,
+      transactionId: payment.nuveiTransactionId,
+      pending: result.status === "pending",
+    }).catch((err) => console.error("[Nuvei] Failed to send refund email:", err));
   }
 
   if (payment.subscription) {
@@ -240,5 +280,13 @@ export async function refundNuveiPayment(paymentId: string) {
     );
   }
 
-  return { id: payment._id.toString(), status: payment.status, refundStatus: result.status, detail: result.detail };
+  return {
+    id: payment._id.toString(),
+    status: payment.status,
+    refundedAmount: amount,
+    partial,
+    withinPolicy: policy.withinWindow,
+    refundStatus: result.status,
+    detail: result.detail,
+  };
 }

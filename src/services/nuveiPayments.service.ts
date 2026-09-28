@@ -120,6 +120,7 @@ export async function reversePayment(
   payment: IPayment,
   kind: "canceled" | "refunded",
   detail: string | null = null,
+  refundedAmount: number | null = null,
 ) {
   const wasApproved = payment.status === "approved";
   if (payment.status === kind || payment.status === "refunded") return false;
@@ -127,6 +128,7 @@ export async function reversePayment(
   if (kind === "refunded") {
     payment.refundedAt = new Date();
     payment.refundDetail = detail;
+    payment.refundedAmount = refundedAmount ?? payment.amount;
   }
   await payment.save();
   if (wasApproved) await revokePaymentAccess(payment);

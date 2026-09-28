@@ -102,10 +102,10 @@ export async function debitWithToken(input: DebitInput) {
 }
 
 /**
- * Reembolso total. Requisito bancario obligatorio de Nuvei. Se hace con la
- * credencial dueña de la transacción (Link to Pay o Recurrencia).
+ * Reembolso (requisito bancario obligatorio de Nuvei). Sin monto es total; con
+ * monto es parcial. Se hace con la credencial dueña de la transacción.
  */
-export async function refundTransaction(transactionId: string, kind: NuveiCredentialKind) {
+export async function refundTransaction(transactionId: string, kind: NuveiCredentialKind, amount?: number) {
   try {
     const { data } = await axios.post<{
       status?: string;
@@ -113,7 +113,11 @@ export async function refundTransaction(transactionId: string, kind: NuveiCreden
       transaction?: NuveiTransaction;
     }>(
       `${nuveiCardBaseUrl()}/v2/transaction/refund/`,
-      { transaction: { id: transactionId }, more_info: true },
+      {
+        transaction: { id: transactionId },
+        ...(amount !== undefined ? { order: { amount } } : {}),
+        more_info: true,
+      },
       { headers: headers(kind), timeout: 45_000 },
     );
     return { status: data.status ?? "failure", detail: data.detail ?? "", transaction: data.transaction };

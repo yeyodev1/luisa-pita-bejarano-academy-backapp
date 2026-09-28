@@ -508,14 +508,14 @@ export async function sendCheckoutAccessEmail(
   });
 }
 
-/** Aviso al cliente de un reembolso hecho desde el admin. */
+/** Aviso al cliente de un reembolso hecho desde el admin (total o parcial). */
 export async function sendRefundEmail(
   to: string,
   name: string,
-  amount: number,
-  transactionId: string,
-  pending: boolean,
+  input: { refundedAmount: number; paidAmount: number; transactionId: string; pending: boolean },
 ): Promise<void> {
+  const partial = input.refundedAmount < input.paidAmount;
+  const percent = Math.round((input.refundedAmount / input.paidAmount) * 100);
   await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL as string,
     to,
@@ -523,9 +523,15 @@ export async function sendRefundEmail(
     html: `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #333;">
         <h2 style="color: #111;">Hola, ${escapeHtml(name)}</h2>
-        <p>${pending ? "Solicitamos" : "Realizamos"} el reembolso de <strong>USD ${amount.toFixed(2)}</strong> a tu tarjeta.</p>
-        <p style="font-size: 14px; color: #666;">ID de transacción: <strong>${escapeHtml(transactionId)}</strong></p>
+        <p>${input.pending ? "Solicitamos" : "Realizamos"} el reembolso de <strong>USD ${input.refundedAmount.toFixed(2)}</strong> a tu tarjeta${
+          partial
+            ? `, que corresponde al ${percent}% de tu pago de USD ${input.paidAmount.toFixed(2)}, según nuestra política de reembolso`
+            : ""
+        }.</p>
+        <p>Tu suscripción quedó cancelada y no se harán más cobros a tu tarjeta.</p>
+        <p style="font-size: 14px; color: #666;">ID de transacción: <strong>${escapeHtml(input.transactionId)}</strong></p>
         <p style="font-size: 14px; color: #666;">Según tu banco, el valor puede tardar algunos días hábiles en verse reflejado en tu estado de cuenta.</p>
+        <p style="font-size: 13px; color: #666;"><a href="${process.env.FRONTEND_URL}/terminos-y-condiciones#reembolsos">Ver política de reembolso</a></p>
       </div>
     `,
   });

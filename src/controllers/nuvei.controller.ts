@@ -247,8 +247,19 @@ export async function adminListPayments(req: Request, res: Response, next: NextF
 
 export async function adminRefund(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await service.refundNuveiPayment(requireString(req.params.id, "id"));
+    const raw = req.body?.amount;
+    const amount = raw === undefined || raw === null || raw === "" ? undefined : Number(raw);
+    if (amount !== undefined && !Number.isFinite(amount)) throw new CustomError("Monto inválido", 400);
+    const result = await service.refundNuveiPayment(requireString(req.params.id, "id"), amount);
     successResponse(res, result, "Reembolso procesado");
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function adminRefundPreview(req: Request, res: Response, next: NextFunction) {
+  try {
+    successResponse(res, await service.getRefundPreview(requireString(req.params.id, "id")), "Política de reembolso");
   } catch (error) {
     next(error);
   }
