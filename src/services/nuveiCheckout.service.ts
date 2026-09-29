@@ -6,6 +6,9 @@ import { CustomError } from "../errors/customError.error";
 import { hashPassword } from "../helpers/password.helper";
 import { generateResetToken } from "../helpers/token.helper";
 import { sendCheckoutAccessEmail, sendCheckoutWelcomeEmail } from "../helpers/email.helper";
+import { runInBackground } from "../helpers/mailer";
+import { Payment } from "../models/Payment";
+import { buildReceipt } from "./nuvei.service";
 import { areSubscriptionsEnabled, findNuveiCredentials, nuveiEnvironment } from "../config/nuvei";
 import {
   saveCard,
@@ -52,6 +55,13 @@ function readCheckoutToken(token: string): CheckoutClaims {
   } catch {
     throw new CustomError("Tu sesión de pago expiró. Vuelve a ingresar tus datos.", 401);
   }
+}
+
+/** Comprobante del cobro recién hecho, para mostrarlo en pantalla al instante. */
+async function receiptFor(paymentId: string | undefined, user: IUser | null) {
+  if (!paymentId) return null;
+  const payment = await Payment.findById(paymentId);
+  return payment && payment.status === "approved" ? buildReceipt(payment, user) : null;
 }
 
 function frontendUrl() {
@@ -157,7 +167,7 @@ export async function completeCheckout(
 
   const user = await User.findById(userId);
   if (user) {
-    await sendAccessEmail(user).catch((err) => console.error("[Checkout] Failed to send access email:", err));
+    await runInBackground(sendAccessEmail(user), "correo de acceso del checkout");
   }
 
   return {
@@ -165,6 +175,7 @@ export async function completeCheckout(
     email: user?.email,
     firstChargeAt: result.firstChargeAt,
     message: result.charge?.message,
+    receipt: await receiptFor(result.charge?.paymentId, user),
   };
 }
 
@@ -177,9 +188,14 @@ export async function verifyCheckoutChargeOtp(checkoutToken: string, paymentId: 
   }
   const user = await User.findById(userId);
   if (user) {
-    await sendAccessEmail(user).catch((err) => console.error("[Checkout] Failed to send access email:", err));
+    await runInBackground(sendAccessEmail(user), "correo de acceso del checkout");
   }
-  return { status: "approved" as const, email: user?.email, firstChargeAt: null };
+  return {
+    status: "approved" as const,
+    email: user?.email,
+    firstChargeAt: null,
+    receipt: await receiptFor(charge.paymentId, user),
+  };
 }
 
 /**

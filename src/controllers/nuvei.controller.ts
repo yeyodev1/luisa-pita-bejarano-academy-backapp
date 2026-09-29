@@ -143,6 +143,14 @@ export async function removeCard(req: AuthRequest, res: Response, next: NextFunc
   }
 }
 
+export async function myReceipt(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    successResponse(res, await service.getMyReceipt(userIdOf(req), requireString(req.params.id, "id")), "Comprobante");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function mySubscription(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     successResponse(res, { subscription: await subscriptionService.getMySubscription(userIdOf(req)) }, "Suscripción obtenida");

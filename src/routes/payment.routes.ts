@@ -32,6 +32,7 @@ router.get("/nuvei/status/:devReference", nuveiController.status);
 // ── Nuvei (Recurrencia: suscripción mensual y tarjetas guardadas) ─────────────
 router.get("/nuvei/subscription/config", authMiddleware, nuveiController.checkoutConfig);
 router.get("/nuvei/subscription", authMiddleware, nuveiController.mySubscription);
+router.get("/nuvei/receipts/:id", authMiddleware, nuveiController.myReceipt);
 router.post("/nuvei/subscription", authMiddleware, nuveiController.subscribe);
 router.post("/nuvei/card/verify", authMiddleware, nuveiController.verifyCard);
 router.post("/nuvei/subscription/verify-otp", authMiddleware, nuveiController.verifyChargeOtp);

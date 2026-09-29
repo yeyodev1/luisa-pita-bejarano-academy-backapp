@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { sendMailBatch } from "../helpers/mailer";
 import { User } from "../models/User";
 import { RecordedClass, IRecordedClass } from "../models/RecordedClass";
 import { CustomError } from "../errors/customError.error";
@@ -280,8 +281,6 @@ export async function sendMissedClassEmail(options: MissedClassEmailOptions) {
   }
 
   // 4. Envío
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  const from = process.env.RESEND_FROM_EMAIL as string;
   let sent = 0;
   const failed: string[] = [];
   const errors: string[] = [];
@@ -296,13 +295,14 @@ export async function sendMissedClassEmail(options: MissedClassEmailOptions) {
         libraryUrl,
         variant: options.variant,
       });
-      return { from, to: r.email, subject: email.subject, html: email.html };
+      return { to: r.email, subject: email.subject, html: email.html };
     });
 
-    const { error } = await resend.batch.send(payload);
-    if (error) {
+    try {
+      await sendMailBatch(payload);
+    } catch (err) {
       failed.push(...batch.map((r) => r.email));
-      errors.push(error.message);
+      errors.push((err as Error).message);
       continue;
     }
     sent += batch.length;
