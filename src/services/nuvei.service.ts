@@ -2,7 +2,9 @@ import { Payment, IPayment } from "../models/Payment";
 import { User } from "../models/User";
 import { Subscription } from "../models/Subscription";
 import { CustomError } from "../errors/customError.error";
+import { PAYMENT_PLANS } from "../config/paymentPlans";
 import {
+  vatIncludedIn,
   credentialKindForAppCode,
   isApprovedTransaction,
   isNuveiEnabled,
@@ -10,6 +12,7 @@ import {
 } from "../config/nuvei";
 import { refundTransaction } from "./nuveiCard.service";
 import { sendRefundEmail } from "../helpers/email.helper";
+import { runInBackground } from "../helpers/mailer";
 import {
   amountMatches,
   approvePayment,
@@ -121,12 +124,17 @@ export async function handleWebhook(body: NuveiWebhookBody): Promise<WebhookResu
       const approved = await Payment.findById(payment._id);
       if (approved) {
         if (isSubscription) await onSubscriptionPaymentApproved(approved);
-        else await notifyAccessGranted(approved);
-        await sendReceiptOnce(approved._id);
+        await runInBackground(
+          (async () => {
+            if (!isSubscription) await notifyAccessGranted(approved);
+            await sendReceiptOnce(approved._id);
+          })(),
+          "correos del webhook",
+        );
       }
     } else {
       // Duplicado: igual se reintenta el comprobante por si falló antes.
-      await sendReceiptOnce(payment._id);
+      await runInBackground(sendReceiptOnce(payment._id), "reintento de comprobante");
     }
     return { httpStatus: 200, status: "approved", accessGranted: granted };
   }
@@ -134,6 +142,42 @@ export async function handleWebhook(body: NuveiWebhookBody): Promise<WebhookResu
   const mapped = status === "0" || status === "1" ? "pending" : "failed";
   await recordNonApproved(devReference, mapped, facts);
   return { httpStatus: 200, status: mapped, accessGranted: false };
+}
+
+/**
+ * Comprobante de un pago con tarjeta, para mostrarlo en la web aunque el correo
+ * no llegue (transaction_id y número de autorización incluidos).
+ */
+export function buildReceipt(payment: IPayment, customer?: { name: string; lastName?: string; email: string } | null) {
+  const vat = vatIncludedIn(payment.amount);
+  return {
+    paymentId: payment._id.toString(),
+    merchant: "Luisa Pita Bejarano",
+    description: PAYMENT_PLANS[payment.plan].reference,
+    planLabel: PAYMENT_PLANS[payment.plan].label,
+    amount: payment.amount,
+    subtotal: Math.round((payment.amount - vat) * 100) / 100,
+    vat,
+    currency: payment.currency || "USD",
+    status: payment.status,
+    transactionId: payment.nuveiTransactionId,
+    authorizationCode: payment.nuveiAuthorizationCode,
+    cardBrand: payment.cardBrand,
+    cardLast4: payment.cardLast4,
+    paidAt: payment.createdAt,
+    refundedAmount: payment.refundedAmount,
+    refundedAt: payment.refundedAt,
+    customer: customer ? { name: `${customer.name} ${customer.lastName ?? ""}`.trim(), email: customer.email } : null,
+  };
+}
+
+export async function getMyReceipt(userId: string, paymentId: string) {
+  const payment = await Payment.findOne({ _id: paymentId, user: userId, gateway: "nuvei" });
+  if (!payment || !["approved", "refunded"].includes(payment.status)) {
+    throw new CustomError("Comprobante no encontrado", 404);
+  }
+  const customer = await User.findById(userId).select("name lastName email");
+  return buildReceipt(payment, customer);
 }
 
 /** Estado para la vista de retorno del navegador. No consulta a Nuvei. */

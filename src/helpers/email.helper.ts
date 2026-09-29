@@ -1,7 +1,6 @@
-import { Resend } from "resend";
+import { sendMail, sendMailBatch } from "./mailer";
 import { PAYMENT_PLANS, PaymentPlan } from "../config/paymentPlans";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 export interface EventReminderEmailInput {
   to: string;
@@ -28,7 +27,7 @@ export async function sendEventReminderEmailBatch(
 ): Promise<void> {
   if (!recipients.length) return;
 
-  const { error } = await resend.batch.send(
+  await sendMailBatch(
     recipients.map((recipient) => {
       const title = escapeHtml(recipient.eventTitle);
       const name = escapeHtml(recipient.name);
@@ -40,8 +39,7 @@ export async function sendEventReminderEmailBatch(
         : "Aún no tienes acceso activo. Elige un plan para participar en las sesiones y acceder a la academia.";
 
       return {
-        from: process.env.RESEND_FROM_EMAIL as string,
-        to: recipient.to,
+            to: recipient.to,
         subject: `${recipient.reminderText}: ${recipient.eventTitle}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #20231f; background: #fffdf7;">
@@ -57,8 +55,6 @@ export async function sendEventReminderEmailBatch(
       };
     }),
   );
-
-  if (error) throw new Error(`Resend batch error: ${error.message}`);
 }
 
 export async function sendVerificationEmail(
@@ -68,8 +64,7 @@ export async function sendVerificationEmail(
 ): Promise<void> {
   const link = `${frontendUrl}/verificar-email?token=${token}`;
 
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Verifica tu cuenta — Luisa Pita Bejarano Academy",
     html: `
@@ -86,8 +81,7 @@ export async function sendVerificationEmail(
 }
 
 export async function sendLoginEmail(to: string, name: string): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Nuevo inicio de sesión — Luisa Pita Bejarano Academy",
     html: `
@@ -106,8 +100,7 @@ export async function sendAdminInviteEmail(
   password: string,
   verificationLink: string,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu invitación a Luisa Pita Bejarano Academy",
     html: `
@@ -140,8 +133,7 @@ export async function sendAccessExtendedEmail(
     year: "numeric",
   });
 
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu acceso fue extendido — Luisa Pita Bejarano Academy",
     html: `
@@ -160,8 +152,7 @@ export async function sendPasswordResetEmail(
   name: string,
   resetUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Restablece tu contraseña — Luisa Pita Bejarano Academy",
     html: `
@@ -182,8 +173,7 @@ export async function sendPasswordResetConfirmationEmail(
   to: string,
   name: string,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Contraseña actualizada — Luisa Pita Bejarano Academy",
     html: `
@@ -202,8 +192,7 @@ export async function sendPaymentWelcomeEmail(
   password: string,
   loginUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Bienvenida a Luisa Pita Bejarano Academy",
     html: `
@@ -231,8 +220,7 @@ export async function sendPaymentAccessEmail(
   name: string,
   loginUrl: string,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu acceso a Vital 360 está activo",
     html: `
@@ -267,8 +255,7 @@ export async function sendManualPaymentReceiptEmail(
     year: "numeric",
   });
 
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Comprobante de pago registrado — Luisa Pita Bejarano Academy",
     html: `
@@ -351,8 +338,7 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
       <td style="padding: 8px 0; text-align: right; font-size: 14px;"><strong>${value}</strong></td>
     </tr>`;
 
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to: input.to,
     subject: `Comprobante de pago — ${plan.label}`,
     html: `
@@ -380,7 +366,6 @@ export async function sendNuveiReceiptEmail(input: NuveiReceiptEmailInput): Prom
       </div>
     `,
   });
-  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 export async function sendSubscriptionChargeFailedEmail(
@@ -391,8 +376,7 @@ export async function sendSubscriptionChargeFailedEmail(
   paymentsUrl: string,
 ): Promise<void> {
   const label = PAYMENT_PLANS[plan].label;
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "No pudimos renovar tu suscripción",
     html: `
@@ -415,8 +399,7 @@ export async function sendSubscriptionCanceledEmail(
   name: string,
   accessUntil: Date | null,
 ): Promise<void> {
-  await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu suscripción fue cancelada",
     html: `
@@ -441,8 +424,7 @@ export async function sendSubscriptionScheduledEmail(
   cardLabel: string | null,
   paymentsUrl: string,
 ): Promise<void> {
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu tarjeta quedó registrada — hoy no se cobró nada",
     html: `
@@ -458,7 +440,6 @@ export async function sendSubscriptionScheduledEmail(
       </div>
     `,
   });
-  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /**
@@ -470,8 +451,7 @@ export async function sendCheckoutWelcomeEmail(
   name: string,
   setPasswordUrl: string,
 ): Promise<void> {
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu acceso a Luisa Pita Bejarano Academy — crea tu contraseña",
     html: `
@@ -486,7 +466,6 @@ export async function sendCheckoutWelcomeEmail(
       </div>
     `,
   });
-  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /** Acceso tras suscribirse sin iniciar sesión, para quien ya tenía cuenta. */
@@ -496,8 +475,7 @@ export async function sendCheckoutAccessEmail(
   loginUrl: string,
   forgotUrl: string,
 ): Promise<void> {
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Tu suscripción a Luisa Pita Bejarano Academy está activa",
     html: `
@@ -509,7 +487,6 @@ export async function sendCheckoutAccessEmail(
       </div>
     `,
   });
-  if (error) throw new Error(`Resend: ${error.message}`);
 }
 
 /** Aviso al cliente de un reembolso hecho desde el admin (total o parcial). */
@@ -520,8 +497,7 @@ export async function sendRefundEmail(
 ): Promise<void> {
   const partial = input.refundedAmount < input.paidAmount;
   const percent = Math.round((input.refundedAmount / input.paidAmount) * 100);
-  const { error } = await resend.emails.send({
-    from: process.env.RESEND_FROM_EMAIL as string,
+  await sendMail({
     to,
     subject: "Procesamos tu reembolso — Luisa Pita Bejarano Academy",
     html: `
@@ -539,5 +515,4 @@ export async function sendRefundEmail(
       </div>
     `,
   });
-  if (error) throw new Error(`Resend: ${error.message}`);
 }

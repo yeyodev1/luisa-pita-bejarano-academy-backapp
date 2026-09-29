@@ -3,6 +3,7 @@ import { User } from "../models/User";
 import { Subscription, ISubscription } from "../models/Subscription";
 import { CustomError } from "../errors/customError.error";
 import { addMonths } from "../helpers/access.helper";
+import { runInBackground } from "../helpers/mailer";
 import {
   sendSubscriptionCanceledEmail,
   sendSubscriptionChargeFailedEmail,
@@ -273,8 +274,14 @@ async function finalizeApprovedCharge(
   const approved = await Payment.findById(paymentId);
   if (granted && approved) {
     await onSubscriptionPaymentApproved(approved);
-    if (options.initial) await notifyAccessGranted(approved, { email: options.accessEmail });
-    await sendReceiptOnce(approved._id);
+    // Los correos no deben retrasar la respuesta del pago.
+    await runInBackground(
+      (async () => {
+        if (options.initial) await notifyAccessGranted(approved, { email: options.accessEmail });
+        await sendReceiptOnce(approved._id);
+      })(),
+      "correos del cobro",
+    );
   }
 }
 
@@ -526,8 +533,9 @@ export async function subscribe(
       await user.save();
     }
     const cardLabel = card.number ? `${cardBrandLabel(card.type)} •••• ${card.number}` : null;
-    await sendSubscriptionScheduledEmail(user.email, user.name, amount, paidUntil, cardLabel, paymentsUrl()).catch(
-      (err) => console.error("[Nuvei] Failed to send scheduled email:", err),
+    await runInBackground(
+      sendSubscriptionScheduledEmail(user.email, user.name, amount, paidUntil, cardLabel, paymentsUrl()),
+      "correo de suscripción sin cobro",
     );
     return { charge: null, firstChargeAt: paidUntil, subscription: serialize(sub) };
   }
