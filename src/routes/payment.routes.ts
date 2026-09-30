@@ -47,5 +47,6 @@ router.post("/nuvei/checkout/card/verify", nuveiController.checkoutVerifyCard);
 router.post("/nuvei/checkout/complete", nuveiController.checkoutComplete);
 router.post("/nuvei/checkout/charge/verify", nuveiController.checkoutVerifyChargeOtp);
 router.post("/nuvei/checkout/resend-access", nuveiController.checkoutResendAccess);
+router.post("/nuvei/checkout/status", nuveiController.checkoutStatus);
 
 export default router;

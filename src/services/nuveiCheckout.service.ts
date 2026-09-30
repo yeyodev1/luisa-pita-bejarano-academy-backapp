@@ -199,6 +199,37 @@ export async function verifyCheckoutChargeOtp(checkoutToken: string, paymentId: 
 }
 
 /**
+ * Estado del checkout para la red de seguridad del navegador: si la respuesta
+ * del pago no llegó (red lenta, pestaña en segundo plano), la página pregunta
+ * aquí y, si ya se cobró o se agendó, pasa a la pantalla final con el comprobante.
+ */
+export async function getCheckoutStatus(checkoutToken: string) {
+  const { userId } = readCheckoutToken(checkoutToken);
+  const claims = jwt.decode(checkoutToken) as { iat?: number } | null;
+  const since = new Date(((claims?.iat ?? 0) - 60) * 1000);
+  const user = await User.findById(userId);
+  if (!user) return { status: "none" as const };
+
+  const payment = await Payment.findOne({ user: userId, gateway: "nuvei", createdAt: { $gte: since } }).sort({
+    createdAt: -1,
+  });
+  if (payment?.status === "approved") {
+    return { status: "approved" as const, email: user.email, firstChargeAt: null, receipt: buildReceipt(payment, user) };
+  }
+  const sub = await Subscription.findOne({
+    user: userId,
+    createdAt: { $gte: since },
+    status: { $in: ["active", "past_due"] },
+  }).sort({ createdAt: -1 });
+  if (sub && !payment) {
+    return { status: "scheduled" as const, email: user.email, firstChargeAt: sub.nextChargeAt, receipt: null };
+  }
+  if (payment?.status === "pending") return { status: "processing" as const };
+  if (payment && ["failed", "canceled"].includes(payment.status)) return { status: "failed" as const };
+  return { status: "none" as const };
+}
+
+/**
  * Reenvío del correo de acceso desde la pantalla final. Responde siempre lo
  * mismo para no revelar qué correos tienen cuenta.
  */
