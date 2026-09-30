@@ -232,6 +232,15 @@ export async function verifyChargeOtp(req: AuthRequest, res: Response, next: Nex
   }
 }
 
+export async function checkoutStatus(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await checkoutService.getCheckoutStatus(requireString(req.body?.checkoutToken, "checkoutToken"));
+    successResponse(res, result, "Estado del checkout");
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function checkoutResendAccess(req: Request, res: Response, next: NextFunction) {
   try {
     const result = await checkoutService.resendAccessEmail(requireString(req.body?.email, "email"));
