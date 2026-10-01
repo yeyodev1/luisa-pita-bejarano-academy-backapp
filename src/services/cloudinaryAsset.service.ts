@@ -120,7 +120,19 @@ export async function confirmUpload(body: Record<string, unknown>) {
     });
     if (resource.type !== "authenticated")
       throw new CustomError("Asset is not authenticated", 400);
-    return normalize(resource as Record<string, unknown>);
+    const asset = normalize(resource as Record<string, unknown>);
+    // Vista previa firmada para el admin (el contenido aún no está publicado).
+    if (resourceType !== "image") return asset;
+    return {
+      ...asset,
+      deliveryUrl: cloudinary.url(publicId, {
+        resource_type: "image",
+        type: "authenticated",
+        sign_url: true,
+        secure: true,
+        transformation: [{ width: 800, crop: "limit" }],
+      }),
+    };
   } catch (error) {
     if (error instanceof CustomError) throw error;
     throw new CustomError("Cloudinary asset could not be verified", 400);

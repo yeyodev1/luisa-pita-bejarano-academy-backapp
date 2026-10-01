@@ -20,6 +20,8 @@ export interface IRecipe extends Document {
   order: number;
   cover?: IMediaAsset;
   publishedAt: Date | null;
+  /** Cuándo se avisó por correo a las alumnas; null = aún no. */
+  announcedAt: Date | null;
 }
 
 const schema = new Schema<IRecipe>(
@@ -48,6 +50,7 @@ const schema = new Schema<IRecipe>(
     order: { type: Number, default: 0 },
     cover: mediaAssetSchema,
     publishedAt: { type: Date, default: null },
+    announcedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

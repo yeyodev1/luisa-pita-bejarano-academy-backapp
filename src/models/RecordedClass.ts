@@ -10,6 +10,8 @@ export interface IRecordedClass extends Document {
   recordingUrl: string; // obligatorio - Google Drive / Meet / etc
   notesUrl?: string; // opcional - Google Doc
   status: RecordedClassStatus;
+  /** Cuándo se avisó por correo a las alumnas; null = aún no. */
+  announcedAt: Date | null;
 }
 
 const schema = new Schema<IRecordedClass>(
@@ -26,6 +28,7 @@ const schema = new Schema<IRecordedClass>(
       default: "published",
       index: true,
     },
+    announcedAt: { type: Date, default: null },
   },
   { timestamps: true },
 );
