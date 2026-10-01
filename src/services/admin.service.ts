@@ -101,8 +101,27 @@ export async function listUsers(filters: {
 }) {
   const query: Record<string, unknown> = {};
   if (filters.role) query.role = filters.role;
-  if (filters.subscriptionStatus)
+
+  // subscriptionStatus se queda en "active" aunque accessUntil ya pasó:
+  // "active" solo trae accesos vigentes y "expired" los vencidos.
+  const now = new Date();
+  const statusConditions: Record<string, unknown>[] = [];
+  if (filters.subscriptionStatus === "active") {
+    statusConditions.push({
+      subscriptionStatus: "active",
+      $or: [{ accessUntil: null }, { accessUntil: { $gt: now } }],
+    });
+  } else if (filters.subscriptionStatus === "expired") {
+    statusConditions.push({
+      $or: [
+        { subscriptionStatus: "active", accessUntil: { $lte: now } },
+        { subscriptionStatus: "canceled" },
+      ],
+    });
+  } else if (filters.subscriptionStatus) {
     query.subscriptionStatus = filters.subscriptionStatus;
+  }
+  if (statusConditions.length) query.$and = statusConditions;
 
   if (filters.search && filters.search.trim()) {
     const searchRegex = new RegExp(filters.search.trim(), "i");

@@ -88,6 +88,11 @@ router.delete("/recorded-classes/:id", academyController.deleteRecordedClass);
 
 router.get("/assessments", academyController.listAssessments);
 router.get("/assessments/:userId", academyController.getAssessment);
+router.post(
+  "/assessments/:userId/photos",
+  upload.single("image"),
+  academyController.uploadAssessmentPhoto,
+);
 router.put(
   "/assessments/:userId/profile",
   academyController.upsertAssessmentProfile,

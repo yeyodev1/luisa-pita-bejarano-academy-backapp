@@ -168,6 +168,18 @@ export const listAssessments = run(
 export const getAssessment = run("Assessment retrieved successfully", (req) =>
   assessmentService.getAssessmentByUser(userId(req)),
 );
+export const uploadAssessmentPhoto = run(
+  "Photo uploaded successfully",
+  (req) => {
+    if (!req.file) throw new CustomError("No image file provided", 400);
+    return assessmentService.uploadPhoto(
+      userId(req),
+      req.file.buffer,
+      req.file.mimetype,
+    );
+  },
+  201,
+);
 export const upsertAssessmentProfile = run(
   "Assessment profile saved successfully",
   (req) => assessmentService.upsertProfile(userId(req), req.body),

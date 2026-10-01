@@ -19,6 +19,12 @@ import {
 import { contentStatuses } from "../models/content.shared";
 import { deleteAsset } from "./cloudinaryAsset.service";
 import { deleteVideo } from "./bunnyStream.service";
+import {
+  announceRecipe,
+  announceRecordedClass,
+} from "./contentAnnouncement.service";
+import { cloudinary } from "../config/cloudinary";
+import { IMediaAsset } from "../models/content.shared";
 
 type Body = Record<string, unknown>;
 type Query = Record<string, unknown>;
@@ -397,15 +403,70 @@ export function getCalendarConfig() {
   };
 }
 
+// El admin necesita ver la portada aunque la receta siga en borrador.
+function coverPreview(cover: IMediaAsset | null | undefined) {
+  if (!cover || cover.provider === "bunny") return cover;
+  return {
+    ...cover,
+    deliveryUrl: cloudinary.url(cover.publicId, {
+      resource_type: cover.resourceType,
+      type: "authenticated",
+      format: cover.format,
+      sign_url: true,
+      secure: true,
+      transformation: [{ width: 800, crop: "limit" }],
+    }),
+  };
+}
+
+const RECIPE_FIELDS = [
+  "title",
+  "slug",
+  "summary",
+  "description",
+  "ingredients",
+  "instructions",
+  "prepMinutes",
+  "cookMinutes",
+  "servings",
+  "status",
+  "order",
+  "cover",
+];
+
+async function ensureUniqueRecipeSlug(slug: unknown, excludeId?: string) {
+  try {
+    await ensureUniqueSlug(Recipe, slug, excludeId);
+  } catch {
+    throw new CustomError(
+      "Ya existe una receta con ese título. Cambia un poco el título.",
+      409,
+    );
+  }
+}
+
+/** Avisa por correo solo si se pidió y la receta quedó publicada. */
+async function maybeAnnounceRecipe(
+  recipe: { _id: unknown; status: string },
+  body: Body,
+) {
+  if (body.notify === true && recipe.status === "published")
+    await announceRecipe(String(recipe._id));
+}
+
 export async function listRecipes(query: Body) {
   const { page, limit, skip } = pagination(query);
   const filter: Body = query.status ? { status: query.status } : {};
   const [recipes, total] = await Promise.all([
-    Recipe.find(filter).sort({ order: 1 }).skip(skip).limit(limit).lean(),
+    Recipe.find(filter)
+      .sort({ order: 1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
     Recipe.countDocuments(filter),
   ]);
   return {
-    recipes,
+    recipes: recipes.map((r) => ({ ...r, cover: coverPreview(r.cover) })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }
@@ -418,53 +479,31 @@ export async function getRecipe(id: string) {
 }
 
 export async function createRecipe(body: Body) {
-  const input = contentInput(body, [
-    "title",
-    "slug",
-    "summary",
-    "description",
-    "ingredients",
-    "instructions",
-    "prepMinutes",
-    "cookMinutes",
-    "servings",
-    "status",
-    "order",
-    "cover",
-    "publishedAt",
-  ]);
-  if (!input.title) throw new CustomError("title is required", 400);
+  if (typeof body.title !== "string" || !body.title.trim())
+    throw new CustomError("Ponle un título a la receta.", 400);
+  const input = contentInput(body, RECIPE_FIELDS);
   if (!input.slug) input.slug = slugify(input.title as string);
-  await ensureUniqueSlug(Recipe, input.slug);
-  return Recipe.create(input);
+  await ensureUniqueRecipeSlug(input.slug);
+  if (input.status === "published") input.publishedAt = new Date();
+  const recipe = await Recipe.create(input);
+  await maybeAnnounceRecipe(recipe, body);
+  return recipe;
 }
 
 export async function updateRecipe(id: string, body: Body) {
   requireObjectId(id);
   const recipe = await Recipe.findById(id);
   if (!recipe) throw new CustomError("Recipe not found", 404);
-  const input = contentInput(
-    body,
-    [
-      "title",
-      "slug",
-      "summary",
-      "description",
-      "ingredients",
-      "instructions",
-      "prepMinutes",
-      "cookMinutes",
-      "servings",
-      "status",
-      "order",
-      "cover",
-      "publishedAt",
-    ],
-    recipe.slug,
-  );
-  await ensureUniqueSlug(Recipe, input.slug, id);
+  const wasPublished = recipe.status === "published";
+  const input = contentInput(body, RECIPE_FIELDS, recipe.slug);
+  await ensureUniqueRecipeSlug(input.slug, id);
+  // La fecha de publicación es la primera vez que se publicó, no cada guardado.
+  if (input.status === "published" && !wasPublished && !recipe.publishedAt)
+    input.publishedAt = new Date();
   Object.assign(recipe, input);
-  return recipe.save();
+  const saved = await recipe.save();
+  await maybeAnnounceRecipe(saved, body);
+  return saved;
 }
 
 export async function deleteRecipe(id: string) {
@@ -646,7 +685,7 @@ export async function createRecordedClass(body: Body) {
       ? body.status
       : "published"
   ) as "published" | "draft" | "archived";
-  return RecordedClass.create({
+  const cls = await RecordedClass.create({
     title,
     classDate,
     startsAt,
@@ -655,6 +694,9 @@ export async function createRecordedClass(body: Body) {
     notesUrl,
     status,
   });
+  if (body.notify === true && cls.status === "published")
+    await announceRecordedClass(String(cls._id));
+  return cls;
 }
 
 export async function updateRecordedClass(id: string, body: Body) {
@@ -680,6 +722,8 @@ export async function updateRecordedClass(id: string, body: Body) {
     update.status = update.status as "published" | "draft" | "archived";
   const cls = await RecordedClass.findByIdAndUpdate(id, update, { new: true, runValidators: true });
   if (!cls) throw new CustomError("Recorded class not found", 404);
+  if (body.notify === true && cls.status === "published")
+    await announceRecordedClass(String(cls._id));
   return cls;
 }
 

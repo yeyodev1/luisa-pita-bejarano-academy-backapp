@@ -116,3 +116,15 @@ export const updateMyAssessmentCheckpoint = run(
       req.body,
     ),
 );
+export const uploadMyAssessmentPhoto = run(
+  "Photo uploaded successfully",
+  (req, userId) => {
+    if (!req.file) throw new CustomError("No image file provided", 400);
+    return assessmentService.uploadPhoto(
+      userId,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+  },
+  201,
+);
