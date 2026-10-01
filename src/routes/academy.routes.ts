@@ -5,6 +5,7 @@ import {
 } from "../middlewares/auth.middleware";
 import * as controller from "../controllers/memberAcademy.controller";
 import * as assetController from "../controllers/cloudinaryAsset.controller";
+import { upload } from "../middlewares/upload.middleware";
 
 const router = Router();
 router.use(authMiddleware, requireActiveAccess);
@@ -35,6 +36,11 @@ router.get("/recorded-classes/:id", controller.getRecordedClass);
 router.get("/my-assessment", controller.getMyAssessment);
 router.put("/my-assessment/profile", controller.upsertMyAssessmentProfile);
 router.post("/my-assessment/checkpoints", controller.addMyAssessmentCheckpoint);
+router.post(
+  "/my-assessment/photos",
+  upload.single("image"),
+  controller.uploadMyAssessmentPhoto,
+);
 router.put(
   "/my-assessment/checkpoints/:checkpointId",
   controller.updateMyAssessmentCheckpoint,

@@ -28,12 +28,21 @@ export interface IAssessmentEvaluacion {
   saltosCuerda: number | null;
 }
 
+export type AssessmentPhotoPose = "frente" | "perfil" | "espalda";
+
+// Fotos privadas (Cloudinary "authenticated"); la URL firmada se arma al leer.
+export interface IAssessmentPhoto {
+  pose: AssessmentPhotoPose;
+  publicId: string;
+}
+
 export interface IAssessmentCheckpoint extends Types.Subdocument {
   monthIndex: number; // 0 = Inicial, n = Mes n
   date: Date | null;
   composicion: IAssessmentComposicion;
   medidas: IAssessmentMedidas;
   evaluacion: IAssessmentEvaluacion;
+  photos: IAssessmentPhoto[];
 }
 
 export interface IAssessmentProfile {
@@ -79,6 +88,20 @@ const checkpointSchema = new Schema<IAssessmentCheckpoint>({
     mountainClimbers: reps,
     burpees: reps,
     saltosCuerda: reps,
+  },
+  photos: {
+    type: [
+      {
+        _id: false,
+        pose: {
+          type: String,
+          enum: ["frente", "perfil", "espalda"],
+          required: true,
+        },
+        publicId: { type: String, required: true },
+      },
+    ],
+    default: [],
   },
 });
 
