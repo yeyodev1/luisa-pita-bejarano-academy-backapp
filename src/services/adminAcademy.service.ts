@@ -87,6 +87,88 @@ async function ensureUniqueSlug(
     throw new CustomError("Slug already exists", 409);
 }
 
+// ── Cursos y clases: validación en español y publishedAt estable ─────────────
+
+/** Valida el título antes de contentInput para devolver mensajes claros. */
+function assertTitle(body: Body, label: "curso" | "clase", required: boolean) {
+  if (body.title === undefined && !required) return;
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (!title)
+    throw new CustomError(
+      label === "curso"
+        ? "Escribe el nombre del curso."
+        : "Escribe el título de la clase.",
+      400,
+    );
+  if (!body.slug && !slugify(title))
+    throw new CustomError(
+      `El ${label === "curso" ? "nombre del curso" : "título de la clase"} debe tener al menos una letra o un número.`,
+      400,
+    );
+}
+
+/** publishedAt = la primera vez que se publica, no en cada guardado. */
+function firstPublishedAt(
+  input: Body,
+  existing?: { status?: string; publishedAt?: Date | null },
+) {
+  if (
+    input.status === "published" &&
+    existing?.status !== "published" &&
+    !existing?.publishedAt
+  )
+    input.publishedAt = new Date();
+}
+
+const COURSE_FIELDS = [
+  "title",
+  "slug",
+  "summary",
+  "description",
+  "status",
+  "order",
+  "cover",
+];
+
+const LESSON_FIELDS = [
+  "title",
+  "slug",
+  "summary",
+  "content",
+  "status",
+  "order",
+  "durationSeconds",
+  "video",
+  "thumbnail",
+  "materials",
+];
+
+async function ensureUniqueCourseSlug(slug: unknown, excludeId?: string) {
+  try {
+    await ensureUniqueSlug(Course, slug, excludeId);
+  } catch {
+    throw new CustomError(
+      "Ya existe un curso con ese nombre. Usa un nombre distinto.",
+      409,
+    );
+  }
+}
+
+/** Dos clases con el mismo título en un curso: se numera la URL en vez de fallar. */
+async function availableLessonSlug(
+  courseId: unknown,
+  base: string,
+  excludeId?: string,
+) {
+  let slug = base;
+  for (let n = 2; ; n += 1) {
+    const query: Body = { course: courseId, slug };
+    if (excludeId) query._id = { $ne: excludeId };
+    if (!(await Lesson.exists(query))) return slug;
+    slug = `${base}-${n}`;
+  }
+}
+
 export async function listCourses(query: Body) {
   const { page, limit, skip } = pagination(query);
   const filter: Body = query.status ? { status: query.status } : {};
@@ -99,7 +181,8 @@ export async function listCourses(query: Body) {
     Course.countDocuments(filter),
   ]);
   return {
-    courses,
+    // El admin ve la portada aunque el curso siga en borrador.
+    courses: courses.map((c) => ({ ...c, cover: coverPreview(c.cover) })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   };
 }
@@ -111,23 +194,15 @@ export async function getCourse(id: string) {
     Lesson.find({ course: id }).sort({ order: 1 }).lean(),
   ]);
   if (!course) throw new CustomError("Course not found", 404);
-  return { ...course, lessons };
+  return { ...course, cover: coverPreview(course.cover), lessons };
 }
 
 export async function createCourse(body: Body) {
-  const input = contentInput(body, [
-    "title",
-    "slug",
-    "summary",
-    "description",
-    "status",
-    "order",
-    "cover",
-    "publishedAt",
-  ]);
-  if (!input.title) throw new CustomError("title is required", 400);
+  assertTitle(body, "curso", true);
+  const input = contentInput(body, COURSE_FIELDS);
   if (!input.slug) input.slug = slugify(input.title as string);
-  await ensureUniqueSlug(Course, input.slug);
+  await ensureUniqueCourseSlug(input.slug);
+  firstPublishedAt(input);
   return Course.create(input);
 }
 
@@ -135,21 +210,10 @@ export async function updateCourse(id: string, body: Body) {
   requireObjectId(id);
   const course = await Course.findById(id);
   if (!course) throw new CustomError("Course not found", 404);
-  const input = contentInput(
-    body,
-    [
-      "title",
-      "slug",
-      "summary",
-      "description",
-      "status",
-      "order",
-      "cover",
-      "publishedAt",
-    ],
-    course.slug,
-  );
-  await ensureUniqueSlug(Course, input.slug, id);
+  assertTitle(body, "curso", false);
+  const input = contentInput(body, COURSE_FIELDS, course.slug);
+  await ensureUniqueCourseSlug(input.slug, id);
+  firstPublishedAt(input, course);
   Object.assign(course, input);
   return course.save();
 }
@@ -216,23 +280,13 @@ export async function createLesson(courseId: string, body: Body) {
   requireObjectId(courseId, "courseId");
   if (!(await Course.exists({ _id: courseId })))
     throw new CustomError("Course not found", 404);
-  const input = contentInput(body, [
-    "title",
-    "slug",
-    "summary",
-    "content",
-    "status",
-    "order",
-    "durationSeconds",
-    "video",
-    "thumbnail",
-    "materials",
-    "publishedAt",
-  ]);
-  if (!input.title) throw new CustomError("title is required", 400);
-  if (!input.slug) input.slug = slugify(input.title as string);
-  if (await Lesson.exists({ course: courseId, slug: input.slug }))
-    throw new CustomError("Slug already exists in this course", 409);
+  assertTitle(body, "clase", true);
+  const input = contentInput(body, LESSON_FIELDS);
+  input.slug = await availableLessonSlug(
+    courseId,
+    (input.slug as string) || slugify(input.title as string),
+  );
+  firstPublishedAt(input);
   return Lesson.create({ ...input, course: courseId });
 }
 
@@ -240,33 +294,15 @@ export async function updateLesson(id: string, body: Body) {
   requireObjectId(id);
   const lesson = await Lesson.findById(id);
   if (!lesson) throw new CustomError("Lesson not found", 404);
-  const input = contentInput(
-    body,
-    [
-      "title",
-      "slug",
-      "summary",
-      "content",
-      "status",
-      "order",
-      "durationSeconds",
-      "video",
-      "thumbnail",
-      "materials",
-      "publishedAt",
-    ],
-    lesson.slug,
-  );
-  if (
-    input.slug &&
-    (await Lesson.exists({
-      course: lesson.course,
-      slug: input.slug,
-      _id: { $ne: id },
-    }))
-  ) {
-    throw new CustomError("Slug already exists in this course", 409);
-  }
+  assertTitle(body, "clase", false);
+  const input = contentInput(body, LESSON_FIELDS, lesson.slug);
+  if (input.slug)
+    input.slug = await availableLessonSlug(
+      lesson.course,
+      input.slug as string,
+      id,
+    );
+  firstPublishedAt(input, lesson);
   Object.assign(lesson, input);
   return lesson.save();
 }
