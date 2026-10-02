@@ -7,6 +7,7 @@ router.get("/event-reminders/:slot", cronController.eventReminders);
 router.get("/missed-class-email", cronController.missedClassEmail);
 router.get("/missed-class-email/status", cronController.missedClassEmailStatus);
 router.get("/recorded-class-gaps", cronController.recordedClassGaps);
+router.get("/class-link-announcement", cronController.classLinkAnnouncement);
 router.get("/nuvei-subscriptions", cronController.nuveiSubscriptions);
 
 export default router;
