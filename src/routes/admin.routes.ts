@@ -8,6 +8,7 @@ import * as academyController from "../controllers/adminAcademy.controller";
 import * as assetController from "../controllers/cloudinaryAsset.controller";
 import * as bunnyController from "../controllers/bunnyStream.controller";
 import * as nuveiController from "../controllers/nuvei.controller";
+import * as backofficeController from "../controllers/backoffice.controller";
 
 const router = Router();
 
@@ -18,6 +19,17 @@ router.post("/users", adminController.createUser);
 router.delete("/users/:id", adminController.deleteUser);
 router.put("/users/:id/access", adminController.updateAccess);
 router.put("/users/:id/founding-member", adminController.setFoundingMember);
+
+router.get("/backoffice/services", backofficeController.listServices);
+router.post("/backoffice/services/seed", backofficeController.seedServices);
+router.post("/backoffice/services", backofficeController.createService);
+router.put("/backoffice/services/:id", backofficeController.updateService);
+router.delete("/backoffice/services/:id", backofficeController.deleteService);
+router.get("/backoffice/requests", backofficeController.listRequests);
+router.post("/backoffice/requests", backofficeController.createRequest);
+router.put("/backoffice/requests/:id", backofficeController.updateRequest);
+router.post("/backoffice/requests/:id/notes", backofficeController.addRequestNote);
+router.delete("/backoffice/requests/:id", backofficeController.deleteRequest);
 
 router.get("/payments", manualPaymentController.list);
 router.post(
