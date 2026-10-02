@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { RecordedClass } from "../models/RecordedClass";
 import { CustomError } from "../errors/customError.error";
-import { WEEKDAY_CLASS_ZOOM } from "./eventReminder.service";
+import { getMainClassSession } from "./weeklySchedule.service";
 import { todayClassTitle } from "./missedClassEmail.service";
 import { announceRecordedClass } from "./contentAnnouncement.service";
 
@@ -14,7 +14,7 @@ import { announceRecordedClass } from "./contentAnnouncement.service";
  * Variables de entorno:
  * - ZOOM_WEBHOOK_SECRET_TOKEN (obligatoria): "Secret Token" de la app de Zoom.
  * - ZOOM_CLASS_MEETING_ID (opcional): ID de la reunión de la clase; por defecto
- *   el de WEEKDAY_CLASS_ZOOM.
+ *   el de la clase principal del horario semanal (admin).
  * - ZOOM_MIN_RECORDING_MINUTES (opcional, 10): ignora grabaciones más cortas
  *   (pruebas o reuniones que se cortaron).
  * - ZOOM_AUTO_ANNOUNCE ("false" para no enviar correo).
@@ -67,11 +67,11 @@ export function verifySignature(
     throw new CustomError("Invalid Zoom signature", 401);
 }
 
-const classMeetingId = () =>
-  (process.env.ZOOM_CLASS_MEETING_ID || WEEKDAY_CLASS_ZOOM.meetingId).replace(
-    /\D/g,
-    "",
-  );
+async function classMeetingId() {
+  const fromEnv = process.env.ZOOM_CLASS_MEETING_ID;
+  const id = fromEnv || (await getMainClassSession())?.meetingId || "";
+  return id.replace(/\D/g, "");
+}
 
 function ecuadorParts(date: Date) {
   const day = date.toLocaleDateString("sv-SE", { timeZone: TZ });
@@ -93,7 +93,7 @@ function playbackUrl(object: ZoomRecordingObject) {
 }
 
 async function publishRecording(object: ZoomRecordingObject) {
-  if (String(object.id ?? "").replace(/\D/g, "") !== classMeetingId())
+  if (String(object.id ?? "").replace(/\D/g, "") !== (await classMeetingId()))
     return { skipped: "otra reunión" };
   const minMinutes = Number(process.env.ZOOM_MIN_RECORDING_MINUTES || 10);
   if ((object.duration ?? 0) < minMinutes)

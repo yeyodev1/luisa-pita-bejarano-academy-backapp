@@ -4,6 +4,7 @@ import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as service from "../services/memberAcademy.service";
 import * as assessmentService from "../services/assessment.service";
+import * as weeklySchedule from "../services/weeklySchedule.service";
 
 type Handler = (req: AuthRequest, userId: string) => Promise<unknown>;
 const run =
@@ -40,6 +41,10 @@ export const updateProgress = run(
 export const getCourseProgress = run(
   "Course progress retrieved successfully",
   (req, userId) => service.getCourseProgress(String(req.params.id), userId),
+);
+export const listWeeklySchedule = run(
+  "Weekly schedule retrieved successfully",
+  () => weeklySchedule.listWeeklySessions({ activeOnly: true }),
 );
 export const listCalendar = run(
   "Calendar events retrieved successfully",

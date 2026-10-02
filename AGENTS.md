@@ -74,6 +74,18 @@ Express + Mongoose + TypeScript, desplegado en Vercel. Frontend hermano:
   (nueva/en_progreso/hecha/descartada) y notas. Al crear una se avisa por correo a
   `REQUESTS_NOTIFY_EMAIL` (lista separada por comas; si no está, no se envía).
 
+### Horario semanal (`services/weeklySchedule.service.ts`, modelo `WeeklySession`)
+- Las sesiones fijas (clase diaria, Cafecito…) viven en la base y las edita el admin en
+  `/admin/contenido/horario` (`/api/admin/weekly-schedule`). Las alumnas las leen en
+  `GET /api/academy/weekly-schedule`. Si la colección está vacía se crean los valores por
+  defecto (`DEFAULT_SESSIONS`).
+- Recordatorios: un solo cron `*/5 * * * *` → `/api/cron/event-reminders`. Para cada sesión
+  activa con `reminders` del día (hora Ecuador) envía a 60/30/10/0 min del inicio, con 20 min
+  de margen. Dedupe por `deliveryKey = fecha:sesionId:minutos:usuario`. Prueba:
+  `?dryRun=1&at=<ISO>`.
+- `isMainClass` (solo una) es la reunión cuyas grabaciones de Zoom se publican solas
+  (`meetingId`; `ZOOM_CLASS_MEETING_ID` la sobreescribe si existe).
+
 ## Correos (`helpers/mailer.ts`)
 - `sendMail` / `sendMailBatch` usan Resend con cuenta de respaldo (`RESEND_FALLBACK_*`).
 - Estilo de plantillas: HTML inline, Arial, `max-width: 600px`, fondo `#fffdf7`,

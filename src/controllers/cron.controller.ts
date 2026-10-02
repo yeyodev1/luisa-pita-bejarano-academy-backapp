@@ -3,7 +3,6 @@ import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import {
   assertCronAuthorization,
-  isEventReminderSlot,
   sendEventReminders,
 } from "../services/eventReminder.service";
 import {
@@ -21,13 +20,9 @@ export async function eventReminders(
 ) {
   try {
     assertCronAuthorization(req.header("authorization"));
-    const slot = String(req.params.slot);
-    if (!isEventReminderSlot(slot)) {
-      throw new CustomError("Invalid reminder slot", 400);
-    }
-
-    const result = await sendEventReminders(slot, {
+    const result = await sendEventReminders({
       dryRun: req.query.dryRun === "1",
+      now: req.query.at ? new Date(String(req.query.at)) : undefined,
     });
     successResponse(res, result, "Event reminders processed successfully");
   } catch (error) {

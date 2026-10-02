@@ -64,6 +64,10 @@ router.get("/lessons/:id", academyController.getLesson);
 router.put("/lessons/:id", academyController.updateLesson);
 router.delete("/lessons/:id", academyController.deleteLesson);
 
+router.get("/weekly-schedule", academyController.listWeeklySchedule);
+router.post("/weekly-schedule", academyController.createWeeklySession);
+router.put("/weekly-schedule/:id", academyController.updateWeeklySession);
+router.delete("/weekly-schedule/:id", academyController.deleteWeeklySession);
 router.get("/calendar/config", academyController.calendarConfig);
 router.get("/calendar", academyController.listCalendar);
 router.post("/calendar", academyController.createCalendar);
