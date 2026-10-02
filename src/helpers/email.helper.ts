@@ -31,8 +31,11 @@ export async function sendEventReminderEmailBatch(
     recipients.map((recipient) => {
       const title = escapeHtml(recipient.eventTitle);
       const name = escapeHtml(recipient.name);
+      const isZoom = recipient.actionUrl.includes("zoom.us");
       const actionLabel = recipient.canJoin
-        ? "Entrar a Google Meet"
+        ? isZoom
+          ? "Entrar a Zoom"
+          : "Entrar a Google Meet"
         : "Elegir mi plan";
       const accessCopy = recipient.canJoin
         ? "Tu acceso está activo. Usa el botón para entrar a la videollamada."

@@ -8,8 +8,13 @@ import {
 import { CustomError } from "../errors/customError.error";
 
 const ECUADOR_TIMEZONE = "America/Guayaquil";
+export const WEEKDAY_CLASS_ZOOM = {
+  url: "https://us06web.zoom.us/j/83322853984?pwd=7wX7AFxC5vbEa6939OvOfWO9uR54xc.1",
+  meetingId: "833 2285 3984",
+  passcode: "353621",
+};
 const MEETING_URLS: Record<string, string> = {
-  "weekday-class": "https://meet.google.com/tik-vsks-pbc",
+  "weekday-class": WEEKDAY_CLASS_ZOOM.url,
   "monday-cafecito": "https://meet.google.com/evz-dpuc-nho",
 };
 const BATCH_SIZE = 100;

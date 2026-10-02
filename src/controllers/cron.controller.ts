@@ -12,6 +12,7 @@ import {
 } from "../services/missedClassEmail.service";
 import { fillRecordedClassGaps } from "../services/recordedClassGaps.service";
 import { chargeDueSubscriptions } from "../services/nuveiSubscription.service";
+import { sendClassLinkAnnouncement } from "../services/classLinkAnnouncement.service";
 
 export async function eventReminders(
   req: Request,
@@ -123,6 +124,30 @@ export async function nuveiSubscriptions(
       limit: req.query.limit ? Number(req.query.limit) : undefined,
     });
     successResponse(res, result, "Nuvei subscriptions processed");
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Aviso puntual: la clase diaria pasa a Zoom. Query: dryRun=1 | test=<email> | confirm=1. */
+export async function classLinkAnnouncement(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    assertCronAuthorization(req.header("authorization"));
+    const q = req.query as Record<string, string | undefined>;
+    const dryRun = q.dryRun === "1";
+    const test = q.test?.trim() || undefined;
+    if (!dryRun && !test && q.confirm !== "1") {
+      throw new CustomError(
+        "Para el envío real agrega confirm=1 (o usa dryRun=1 / test=<email>)",
+        400,
+      );
+    }
+    const result = await sendClassLinkAnnouncement({ dryRun, test });
+    successResponse(res, result, "Class link announcement processed");
   } catch (error) {
     next(error);
   }
