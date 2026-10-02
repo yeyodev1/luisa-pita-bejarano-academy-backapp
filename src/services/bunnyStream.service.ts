@@ -22,7 +22,7 @@ function config() {
   const libraryId = process.env.BUNNY_STREAM_LIBRARY_ID;
   const apiKey = process.env.BUNNY_STREAM_API_KEY;
   if (!libraryId || !apiKey)
-    throw new CustomError("Bunny Stream is not configured", 503);
+    throw new CustomError("El servicio de videos no está configurado. Avísale al equipo técnico.", 503);
   return { libraryId, apiKey };
 }
 
@@ -45,16 +45,16 @@ async function request<T>(path: string, options: RequestInit = {}) {
   });
   if (!response.ok) {
     const details = await response.text();
-    console.error("Bunny Stream request failed", response.status, details);
-    if (response.status === 404) throw new CustomError("Bunny video not found", 404);
-    throw new CustomError("Bunny Stream request failed", 502);
+    console.error("El servicio de videos no respondió. Intenta de nuevo en unos minutos.", response.status, details);
+    if (response.status === 404) throw new CustomError("No se encontró el video. Vuelve a subirlo.", 404);
+    throw new CustomError("El servicio de videos no respondió. Intenta de nuevo en unos minutos.", 502);
   }
   return (response.status === 204 ? null : await response.json()) as T;
 }
 
 export async function createUpload(titleValue: unknown) {
   const title = typeof titleValue === "string" ? titleValue.trim() : "";
-  if (!title) throw new CustomError("title is required", 400);
+  if (!title) throw new CustomError("Falta el nombre del archivo de video.", 400);
   const { libraryId, apiKey } = config();
   const video = await request<BunnyVideo>("/videos", {
     method: "POST",
@@ -81,7 +81,7 @@ export async function getVideo(videoIdValue: unknown) {
 export async function confirmUpload(videoIdValue: unknown, body: Record<string, unknown>) {
   const video = await getVideo(videoIdValue);
   if (video.status !== 4 && video.status !== 8)
-    throw new CustomError("Bunny video is not ready for playback", 409);
+    throw new CustomError("El video todavía se está procesando. Espera unos minutos e intenta de nuevo.", 409);
   return {
     provider: "bunny" as const,
     publicId: video.guid,
@@ -113,7 +113,7 @@ export function createDelivery(videoIdValue: unknown) {
   const { libraryId } = config();
   const tokenKey = process.env.BUNNY_STREAM_TOKEN_AUTH_KEY;
   if (!tokenKey)
-    throw new CustomError("Bunny Stream embed token authentication is not configured", 503);
+    throw new CustomError("El servicio de videos no está configurado. Avísale al equipo técnico.", 503);
   const expires = Math.floor(Date.now() / 1000) + 14400;
   const token = createHash("sha256")
     .update(`${tokenKey}${videoId}${expires}`)

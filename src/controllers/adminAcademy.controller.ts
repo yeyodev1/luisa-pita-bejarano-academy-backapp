@@ -4,6 +4,7 @@ import { CustomError } from "../errors/customError.error";
 import { successResponse } from "../helpers/response.helper";
 import * as service from "../services/adminAcademy.service";
 import * as assessmentService from "../services/assessment.service";
+import * as weeklySchedule from "../services/weeklySchedule.service";
 
 type Handler = (req: AuthRequest) => Promise<unknown> | unknown;
 const run =
@@ -205,4 +206,21 @@ export const deleteAssessmentCheckpoint = run(
       userId(req),
       String(req.params.checkpointId),
     ),
+);
+
+export const listWeeklySchedule = run("Weekly schedule retrieved successfully", () =>
+  weeklySchedule.listWeeklySessions(),
+);
+export const createWeeklySession = run(
+  "Weekly session created successfully",
+  (req) => weeklySchedule.createWeeklySession(req.body),
+  201,
+);
+export const updateWeeklySession = run(
+  "Weekly session updated successfully",
+  (req) => weeklySchedule.updateWeeklySession(id(req), req.body),
+);
+export const deleteWeeklySession = run(
+  "Weekly session deleted successfully",
+  (req) => weeklySchedule.deleteWeeklySession(id(req)),
 );

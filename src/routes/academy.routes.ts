@@ -16,6 +16,7 @@ router.get("/courses/:id/progress", controller.getCourseProgress);
 router.get("/lessons/:id", controller.getLesson);
 router.put("/lessons/:id/progress", controller.updateProgress);
 
+router.get("/weekly-schedule", controller.listWeeklySchedule);
 router.get("/calendar", controller.listCalendar);
 router.get("/calendar/:id", controller.getCalendar);
 router.get("/recipes", controller.listRecipes);

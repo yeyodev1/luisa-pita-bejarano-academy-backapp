@@ -10,6 +10,8 @@ export interface EventReminderEmailInput {
   reminderText: string;
   canJoin: boolean;
   actionUrl: string;
+  meetingId?: string;
+  passcode?: string;
 }
 
 function escapeHtml(value: string) {
@@ -35,8 +37,20 @@ export async function sendEventReminderEmailBatch(
       const actionLabel = recipient.canJoin
         ? isZoom
           ? "Entrar a Zoom"
-          : "Entrar a Google Meet"
+          : recipient.actionUrl.includes("meet.google.com")
+            ? "Entrar a Google Meet"
+            : "Entrar a la videollamada"
         : "Elegir mi plan";
+      const accessDetails = [
+        recipient.meetingId
+          ? `<strong>ID de reunión:</strong> ${escapeHtml(recipient.meetingId)}`
+          : "",
+        recipient.passcode
+          ? `<strong>Código de acceso:</strong> ${escapeHtml(recipient.passcode)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("<br>");
       const accessCopy = recipient.canJoin
         ? "Tu acceso está activo. Usa el botón para entrar a la videollamada."
         : "Aún no tienes acceso activo. Elige un plan para participar en las sesiones y acceder a la academia.";
@@ -52,6 +66,7 @@ export async function sendEventReminderEmailBatch(
             <p><strong>Horario:</strong> ${escapeHtml(recipient.eventTime)} (hora Ecuador).</p>
             <p>${accessCopy}</p>
             <a href="${escapeHtml(recipient.actionUrl)}" style="display: inline-block; margin: 16px 0; padding: 14px 24px; color: #ffffff; background: #536d59; border-radius: 999px; font-weight: 700; text-decoration: none;">${actionLabel}</a>
+            ${accessDetails ? `<p>${accessDetails}</p>` : ""}
             <p style="margin-top: 24px; color: #536d59; font-size: 13px;">Luisa Pita Bejarano Academy · Todos los horarios corresponden a Ecuador (UTC-5).</p>
           </div>
         `,

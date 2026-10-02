@@ -6,83 +6,22 @@ import {
   sendEventReminderEmailBatch,
 } from "../helpers/email.helper";
 import { CustomError } from "../errors/customError.error";
+import { formatRange, listWeeklySessions } from "./weeklySchedule.service";
 
 const ECUADOR_TIMEZONE = "America/Guayaquil";
-export const WEEKDAY_CLASS_ZOOM = {
-  url: "https://us06web.zoom.us/j/83322853984?pwd=7wX7AFxC5vbEa6939OvOfWO9uR54xc.1",
-  meetingId: "833 2285 3984",
-  passcode: "353621",
-};
-const MEETING_URLS: Record<string, string> = {
-  "weekday-class": WEEKDAY_CLASS_ZOOM.url,
-  "monday-cafecito": "https://meet.google.com/evz-dpuc-nho",
-};
 const BATCH_SIZE = 100;
+/** Margen para enviar un recordatorio si el cron llega tarde. */
+const SEND_WINDOW_MINUTES = 20;
 
-const REMINDER_SLOTS = {
-  "morning-60": {
-    eventKey: "weekday-class",
-    eventTitle: "Clase de Luisa Pita Bejarano",
-    eventTime: "6:00 a. m. - 7:00 a. m.",
-    reminderText: "Falta 1 hora",
-    weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  },
-  "morning-30": {
-    eventKey: "weekday-class",
-    eventTitle: "Clase de Luisa Pita Bejarano",
-    eventTime: "6:00 a. m. - 7:00 a. m.",
-    reminderText: "Faltan 30 minutos",
-    weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  },
-  "morning-10": {
-    eventKey: "weekday-class",
-    eventTitle: "Clase de Luisa Pita Bejarano",
-    eventTime: "6:00 a. m. - 7:00 a. m.",
-    reminderText: "Faltan 10 minutos",
-    weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  },
-  "morning-now": {
-    eventKey: "weekday-class",
-    eventTitle: "Clase de Luisa Pita Bejarano",
-    eventTime: "6:00 a. m. - 7:00 a. m.",
-    reminderText: "La clase comienza ahora",
-    weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  },
-  "cafecito-60": {
-    eventKey: "monday-cafecito",
-    eventTitle: "Cafecito con Luisa Pita Bejarano",
-    eventTime: "4:00 p. m. - 5:00 p. m.",
-    reminderText: "Falta 1 hora",
-    weekdays: ["Mon"],
-  },
-  "cafecito-30": {
-    eventKey: "monday-cafecito",
-    eventTitle: "Cafecito con Luisa Pita Bejarano",
-    eventTime: "4:00 p. m. - 5:00 p. m.",
-    reminderText: "Faltan 30 minutos",
-    weekdays: ["Mon"],
-  },
-  "cafecito-10": {
-    eventKey: "monday-cafecito",
-    eventTitle: "Cafecito con Luisa Pita Bejarano",
-    eventTime: "4:00 p. m. - 5:00 p. m.",
-    reminderText: "Faltan 10 minutos",
-    weekdays: ["Mon"],
-  },
-  "cafecito-now": {
-    eventKey: "monday-cafecito",
-    eventTitle: "Cafecito con Luisa Pita Bejarano",
-    eventTime: "4:00 p. m. - 5:00 p. m.",
-    reminderText: "El Cafecito comienza ahora",
-    weekdays: ["Mon"],
-  },
-} as const;
+/** Minutos antes del inicio en que sale cada recordatorio. */
+const REMINDER_OFFSETS = [
+  { minutes: 60, text: "Falta 1 hora" },
+  { minutes: 30, text: "Faltan 30 minutos" },
+  { minutes: 10, text: "Faltan 10 minutos" },
+  { minutes: 0, text: "La sesión comienza ahora" },
+] as const;
 
-export type EventReminderSlot = keyof typeof REMINDER_SLOTS;
-
-export function isEventReminderSlot(value: string): value is EventReminderSlot {
-  return value in REMINDER_SLOTS;
-}
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function ecuadorDateParts(now: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -97,7 +36,7 @@ function ecuadorDateParts(now: Date) {
 
   return {
     date: `${value("year")}-${value("month")}-${value("day")}`,
-    weekday: value("weekday"),
+    weekday: WEEKDAYS.indexOf(value("weekday")),
   };
 }
 
@@ -114,115 +53,147 @@ function hasEventAccess(
   return !user.accessUntil || user.accessUntil.getTime() > now.getTime();
 }
 
+type DueReminder = {
+  session: Awaited<ReturnType<typeof listWeeklySessions>>[number];
+  slot: string;
+  reminderText: string;
+};
+
+/** Recordatorios que tocan ahora según el horario semanal guardado. */
+async function dueReminders(now: Date) {
+  const { date, weekday } = ecuadorDateParts(now);
+  const sessions = await listWeeklySessions({ activeOnly: true });
+  const due: DueReminder[] = [];
+  for (const session of sessions) {
+    if (!session.reminders || !session.days.includes(weekday)) continue;
+    const startsAt = new Date(`${date}T${session.startTime}:00-05:00`).getTime();
+    for (const offset of REMINDER_OFFSETS) {
+      const sendAt = startsAt - offset.minutes * 60_000;
+      const elapsed = now.getTime() - sendAt;
+      if (elapsed < 0 || elapsed >= SEND_WINDOW_MINUTES * 60_000) continue;
+      due.push({
+        session,
+        slot: `${session._id}:${offset.minutes}`,
+        reminderText: offset.text,
+      });
+    }
+  }
+  return { date, due };
+}
+
 export async function sendEventReminders(
-  slot: EventReminderSlot,
   options: { dryRun?: boolean; now?: Date } = {},
 ) {
-  const schedule = REMINDER_SLOTS[slot];
   const now = options.now || new Date();
-  const { date, weekday } = ecuadorDateParts(now);
-
-  if (!schedule.weekdays.includes(weekday as never)) {
-    return { slot, date, sent: 0, eligible: 0, skipped: "no-event-today" };
-  }
+  const { date, due } = await dueReminders(now);
+  if (!due.length) return { date, reminders: [], sent: 0 };
 
   const users = await User.find({ isVerified: true })
     .select("_id name email role subscriptionStatus accessUntil")
     .lean();
   const frontendUrl =
     process.env.FRONTEND_URL || "https://luisapitabejarano.com";
-  const recipients = users.map((user) => {
-    const canJoin = hasEventAccess(user, now);
-    return {
-      userId: user._id.toString(),
-      userObjectId: user._id,
-      recipientKind: canJoin ? ("access" as const) : ("payment" as const),
-      email: {
-        to: user.email,
-        name: user.name,
-        eventTitle: schedule.eventTitle,
-        eventTime: schedule.eventTime,
-        reminderText: schedule.reminderText,
-        canJoin,
-        actionUrl: canJoin
-          ? MEETING_URLS[schedule.eventKey]
-          : `${frontendUrl}/app/pagos`,
-      } satisfies EventReminderEmailInput,
-    };
-  });
 
-  if (options.dryRun) {
-    return {
-      slot,
-      date,
-      eligible: recipients.length,
-      withAccess: recipients.filter((item) => item.email.canJoin).length,
-      invitedToPay: recipients.filter((item) => !item.email.canJoin).length,
-      sent: 0,
-      dryRun: true,
-    };
-  }
+  const results = [];
+  for (const { session, slot, reminderText } of due) {
+    const recipients = users.map((user) => {
+      const canJoin = hasEventAccess(user, now);
+      return {
+        userId: user._id.toString(),
+        userObjectId: user._id,
+        recipientKind: canJoin ? ("access" as const) : ("payment" as const),
+        email: {
+          to: user.email,
+          name: user.name,
+          eventTitle: session.title,
+          eventTime: formatRange(session),
+          reminderText,
+          canJoin,
+          actionUrl: canJoin ? session.meetingUrl : `${frontendUrl}/app/pagos`,
+          meetingId: canJoin ? session.meetingId : "",
+          passcode: canJoin ? session.passcode : "",
+        } satisfies EventReminderEmailInput,
+      };
+    });
 
-  let sent = 0;
-  for (let offset = 0; offset < recipients.length; offset += BATCH_SIZE) {
-    const batch = recipients.slice(offset, offset + BATCH_SIZE);
-    const claimToken = crypto.randomUUID();
-
-    await EventReminderDelivery.bulkWrite(
-      batch.map((recipient) => ({
-        updateOne: {
-          filter: {
-            deliveryKey: `${date}:${slot}:${recipient.userId}`,
-          },
-          update: {
-            $setOnInsert: {
-              deliveryKey: `${date}:${slot}:${recipient.userId}`,
-              user: recipient.userObjectId,
-              eventKey: schedule.eventKey,
-              eventDate: date,
-              reminderSlot: slot,
-              recipientKind: recipient.recipientKind,
-              claimToken,
-            },
-          },
-          upsert: true,
-        },
-      })),
-      { ordered: false },
-    );
-
-    const claimed = await EventReminderDelivery.find({ claimToken })
-      .select("user")
-      .lean();
-    const claimedIds = new Set(
-      claimed.map((delivery) => delivery.user.toString()),
-    );
-    const claimedRecipients = batch.filter((recipient) =>
-      claimedIds.has(recipient.userId),
-    );
-    if (!claimedRecipients.length) continue;
-
-    try {
-      await sendEventReminderEmailBatch(
-        claimedRecipients.map((recipient) => recipient.email),
-      );
-      await EventReminderDelivery.updateMany(
-        { claimToken },
-        { $set: { sentAt: new Date() }, $unset: { claimToken: 1 } },
-      );
-      sent += claimedRecipients.length;
-    } catch (error) {
-      await EventReminderDelivery.deleteMany({ claimToken });
-      throw error;
+    if (options.dryRun) {
+      results.push({
+        session: session.title,
+        reminderText,
+        eligible: recipients.length,
+        withAccess: recipients.filter((item) => item.email.canJoin).length,
+        sent: 0,
+      });
+      continue;
     }
+
+    let sent = 0;
+    for (let offset = 0; offset < recipients.length; offset += BATCH_SIZE) {
+      const batch = recipients.slice(offset, offset + BATCH_SIZE);
+      const claimToken = crypto.randomUUID();
+
+      await EventReminderDelivery.bulkWrite(
+        batch.map((recipient) => ({
+          updateOne: {
+            filter: {
+              deliveryKey: `${date}:${slot}:${recipient.userId}`,
+            },
+            update: {
+              $setOnInsert: {
+                deliveryKey: `${date}:${slot}:${recipient.userId}`,
+                user: recipient.userObjectId,
+                eventKey: session.key,
+                eventDate: date,
+                reminderSlot: slot,
+                recipientKind: recipient.recipientKind,
+                claimToken,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      );
+
+      const claimed = await EventReminderDelivery.find({ claimToken })
+        .select("user")
+        .lean();
+      const claimedIds = new Set(
+        claimed.map((delivery) => delivery.user.toString()),
+      );
+      const claimedRecipients = batch.filter((recipient) =>
+        claimedIds.has(recipient.userId),
+      );
+      if (!claimedRecipients.length) continue;
+
+      try {
+        await sendEventReminderEmailBatch(
+          claimedRecipients.map((recipient) => recipient.email),
+        );
+        await EventReminderDelivery.updateMany(
+          { claimToken },
+          { $set: { sentAt: new Date() }, $unset: { claimToken: 1 } },
+        );
+        sent += claimedRecipients.length;
+      } catch (error) {
+        await EventReminderDelivery.deleteMany({ claimToken });
+        throw error;
+      }
+    }
+    results.push({
+      session: session.title,
+      reminderText,
+      eligible: recipients.length,
+      sent,
+      duplicatesSkipped: recipients.length - sent,
+    });
   }
 
   return {
-    slot,
     date,
-    eligible: recipients.length,
-    sent,
-    duplicatesSkipped: recipients.length - sent,
+    dryRun: Boolean(options.dryRun),
+    reminders: results,
+    sent: results.reduce((total, item) => total + item.sent, 0),
   };
 }
 
