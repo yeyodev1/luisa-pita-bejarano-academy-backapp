@@ -67,16 +67,17 @@ async function dueReminders(now: Date) {
   for (const session of sessions) {
     if (!session.reminders || !session.days.includes(weekday)) continue;
     const startsAt = new Date(`${date}T${session.startTime}:00-05:00`).getTime();
-    for (const offset of REMINDER_OFFSETS) {
-      const sendAt = startsAt - offset.minutes * 60_000;
-      const elapsed = now.getTime() - sendAt;
-      if (elapsed < 0 || elapsed >= SEND_WINDOW_MINUTES * 60_000) continue;
-      due.push({
-        session,
-        slot: `${session._id}:${offset.minutes}`,
-        reminderText: offset.text,
-      });
-    }
+    // Solo el aviso más reciente: si el cron llega tarde no salen dos seguidos.
+    const offset = [...REMINDER_OFFSETS].reverse().find((item) => {
+      const elapsed = now.getTime() - (startsAt - item.minutes * 60_000);
+      return elapsed >= 0 && elapsed < SEND_WINDOW_MINUTES * 60_000;
+    });
+    if (!offset) continue;
+    due.push({
+      session,
+      slot: `${session._id}:${offset.minutes}`,
+      reminderText: offset.text,
+    });
   }
   return { date, due };
 }
