@@ -12,6 +12,10 @@ export interface IRecordedClass extends Document {
   status: RecordedClassStatus;
   /** Cuándo se avisó por correo a las alumnas; null = aún no. */
   announcedAt: Date | null;
+  /** "zoom" = publicada sola por el webhook de grabación de Zoom. */
+  source: "manual" | "zoom";
+  /** UUID de la reunión de Zoom; evita publicar dos veces la misma grabación. */
+  zoomMeetingUuid?: string;
 }
 
 const schema = new Schema<IRecordedClass>(
@@ -29,10 +33,13 @@ const schema = new Schema<IRecordedClass>(
       index: true,
     },
     announcedAt: { type: Date, default: null },
+    source: { type: String, enum: ["manual", "zoom"], default: "manual" },
+    zoomMeetingUuid: { type: String },
   },
   { timestamps: true },
 );
 
 schema.index({ status: 1, classDate: -1 });
+schema.index({ zoomMeetingUuid: 1 }, { unique: true, sparse: true });
 
 export const RecordedClass = model<IRecordedClass>("RecordedClass", schema);

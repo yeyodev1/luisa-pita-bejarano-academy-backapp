@@ -7,6 +7,7 @@ import launchReminderRouter from "./launchReminder.routes";
 import pixelRouter from "./pixel.routes";
 import academyRouter from "./academy.routes";
 import cronRouter from "./cron.routes";
+import webhookRouter from "./webhook.routes";
 
 function routerApi(app: Application) {
   const router = express.Router();
@@ -20,6 +21,7 @@ function routerApi(app: Application) {
   router.use("/pixel", pixelRouter);
   router.use("/academy", academyRouter);
   router.use("/cron", cronRouter);
+  router.use("/webhooks", webhookRouter);
 }
 
 export default routerApi;

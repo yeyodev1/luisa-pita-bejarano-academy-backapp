@@ -35,7 +35,16 @@ export function createApp() {
   const app = express();
 
   app.use(cors(corsOptions));
-  app.use(express.json({ limit: "50mb" }));
+  app.use(
+    express.json({
+      limit: "50mb",
+      // Los webhooks firmados (Zoom) se verifican sobre el cuerpo exacto recibido.
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: string }).rawBody =
+          buf.toString("utf8");
+      },
+    }),
+  );
 
   app.get("/", (_req, res) => {
     res.send("Server is alive");
