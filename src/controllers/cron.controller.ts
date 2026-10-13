@@ -10,6 +10,9 @@ import {
   missedClassEmailStatus as getMissedClassEmailStatus,
 } from "../services/missedClassEmail.service";
 import { fillRecordedClassGaps } from "../services/recordedClassGaps.service";
+import { createRecordedClass } from "../services/adminAcademy.service";
+import { todayClassTitle } from "../services/missedClassEmail.service";
+import { RecordedClass } from "../models/RecordedClass";
 import { chargeDueSubscriptions } from "../services/nuveiSubscription.service";
 import { sendClassLinkAnnouncement } from "../services/classLinkAnnouncement.service";
 
@@ -101,6 +104,57 @@ export async function recordedClassGaps(
     }
     const result = await fillRecordedClassGaps({ dryRun, to: q.to?.trim() || undefined });
     successResponse(res, result, "Recorded class gaps processed");
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Publica a mano la grabación de una clase (p. ej. una de Zoom antes de tener el webhook).
+ * Query: date=YYYY-MM-DD, url, dryRun=1 | confirm=1, notify=0 (no avisar por correo).
+ */
+export async function publishRecordedClass(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    assertCronAuthorization(req.header("authorization"));
+    const q = req.query as Record<string, string | undefined>;
+    const date = q.date?.trim() ?? "";
+    const recordingUrl = q.url?.trim() ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new CustomError("date=YYYY-MM-DD", 400);
+    if (!/^https:\/\//.test(recordingUrl)) throw new CustomError("url inválida", 400);
+    const dryRun = q.dryRun === "1";
+    if (!dryRun && q.confirm !== "1") {
+      throw new CustomError("Para escribir agrega confirm=1 (o usa dryRun=1)", 400);
+    }
+
+    const sameDay = await RecordedClass.findOne({
+      classDate: {
+        $gte: new Date(`${date}T00:00:00-05:00`),
+        $lte: new Date(`${date}T23:59:59-05:00`),
+      },
+    }).lean();
+    const plan = {
+      title: todayClassTitle(date),
+      classDate: `${date}T06:00:00-05:00`,
+      startsAt: "06:00",
+      endsAt: "07:00",
+      recordingUrl,
+      status: "published",
+      notify: q.notify !== "0",
+    };
+    if (sameDay) {
+      successResponse(res, { skipped: "ya hay una clase ese día", existing: sameDay }, "Recorded class not published");
+      return;
+    }
+    if (dryRun) {
+      successResponse(res, { dryRun, plan }, "Recorded class preview");
+      return;
+    }
+    const cls = await createRecordedClass(plan);
+    successResponse(res, { published: String(cls._id), plan }, "Recorded class published");
   } catch (error) {
     next(error);
   }
